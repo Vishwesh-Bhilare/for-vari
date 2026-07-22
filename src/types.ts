@@ -1,4 +1,4 @@
-export type Density = 'low' | 'medium' | 'high';
+export type Density = 'unknown' | 'low' | 'medium' | 'high';
 export type QueuePriority = 'sos' | 'normal';
 
 export interface NodePoint {
@@ -10,7 +10,7 @@ export interface NodePoint {
 }
 
 export interface CrowdReport {
-  id?: string;
+  id?: string | number;
   node_id: string;
   density: Density;
   reported_by?: string;
@@ -19,7 +19,7 @@ export interface CrowdReport {
 }
 
 export interface ItemRequest {
-  id?: string;
+  id?: string | number;
   requester_id?: string;
   item_name: string;
   lat?: number;
@@ -31,7 +31,7 @@ export interface ItemRequest {
 }
 
 export interface Sighting {
-  id?: string;
+  id?: string | number;
   member_id?: string;
   node_id?: string;
   reported_by?: string;
@@ -41,7 +41,7 @@ export interface Sighting {
 }
 
 export interface SosAlert {
-  id?: string;
+  id?: string | number;
   member_id?: string;
   node_id?: string;
   lat?: number;
@@ -57,4 +57,7 @@ export interface OutboxEntry {
   payload: Record<string, unknown>;
   priority: QueuePriority;
   createdAt: number;
+  localId?: IDBValidKey;
 }
+
+export type StoredRecord = CrowdReport | ItemRequest | Sighting | SosAlert;

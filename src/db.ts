@@ -1,6 +1,6 @@
 import { openDB } from 'idb';
 import { isSupabaseConfigured, supabase } from './supabase';
-import type { OutboxEntry, QueuePriority } from './types';
+import type { OutboxEntry, QueuePriority, StoredRecord } from './types';
 
 const dbPromise = openDB('vari-companion', 1, {
   upgrade(db) {
@@ -24,21 +24,26 @@ export async function getRows<T>(store: string): Promise<T[]> {
   return (await dbPromise).getAll(store);
 }
 
-export async function queueWrite(table: string, payload: Record<string, unknown>, priority: QueuePriority = 'normal') {
-  const localPayload = { ...payload, pending: true, created_at: new Date().toISOString() };
-  await (await dbPromise).add(table, localPayload);
+export async function queueWrite<T extends StoredRecord>(table: string, payload: Record<string, unknown>, priority: QueuePriority = 'normal') {
+  const db = await dbPromise;
+  const localPayload = { ...payload, pending: true, created_at: new Date().toISOString() } as T;
+  const localId = await db.add(table, localPayload);
+  const localRecord = { ...localPayload, id: localId } as T;
 
   if (!navigator.onLine || !isSupabaseConfigured) {
-    await (await dbPromise).add('outbox', { table, payload, priority, createdAt: Date.now() });
-    return { queued: true };
+    await db.add('outbox', { table, payload, priority, createdAt: Date.now(), localId });
+    return { queued: true, localRecord };
   }
 
-  const { error } = await supabase.from(table).insert(payload);
+  const { data, error } = await supabase.from(table).insert(payload).select().single();
   if (error) {
-    await (await dbPromise).add('outbox', { table, payload, priority, createdAt: Date.now() });
-    return { queued: true, error };
+    await db.add('outbox', { table, payload, priority, createdAt: Date.now(), localId });
+    return { queued: true, error, localRecord };
   }
-  return { queued: false };
+
+  await db.delete(table, localId);
+  if (data) await cacheRows(table, [data]);
+  return { queued: false, localRecord, serverRecord: data as T };
 }
 
 export async function drainOutbox() {
@@ -48,8 +53,13 @@ export async function drainOutbox() {
   entries.sort((a, b) => (a.priority === b.priority ? a.createdAt - b.createdAt : a.priority === 'sos' ? -1 : 1));
 
   for (const entry of entries) {
-    const { error } = await supabase.from(entry.table).insert(entry.payload);
-    if (!error && entry.id) await db.delete('outbox', entry.id);
+    const { error } = await supabase.from(entry.table).insert(entry.payload).select().single();
+    if (!error && entry.id) {
+      const tx = db.transaction([entry.table, 'outbox'], 'readwrite');
+      if (entry.localId !== undefined) await tx.objectStore(entry.table).delete(entry.localId);
+      await tx.objectStore('outbox').delete(entry.id);
+      await tx.done;
+    }
   }
 }
 

@@ -16,13 +16,16 @@ const seedNodes: NodePoint[] = [
   { id: '66666666-6666-4666-8666-666666666666', name: 'Pandharpur', lat: 17.6746, lng: 75.3237, sequence_order: 6 }
 ];
 
-const densityClass: Record<Density, string> = { low: '#16a34a', medium: '#f59e0b', high: '#dc2626' };
+const densityClass: Record<Density, string> = { unknown: '#94a3b8', low: '#16a34a', medium: '#f59e0b', high: '#dc2626' };
 const demoMember = '00000000-0000-4000-8000-000000000001';
 
 function usePosition() {
   const [position, setPosition] = useState<GeolocationPosition>();
   useEffect(() => {
-    navigator.geolocation?.getCurrentPosition(setPosition, console.warn, { enableHighAccuracy: true });
+    const watchId = navigator.geolocation?.watchPosition(setPosition, console.warn, { enableHighAccuracy: true });
+    return () => {
+      if (watchId !== undefined) navigator.geolocation?.clearWatch(watchId);
+    };
   }, []);
   return position;
 }
@@ -54,51 +57,51 @@ function App() {
     if (!isSupabaseConfigured) return;
     void supabase.from('nodes').select('*').order('sequence_order').then(({ data }) => data && cacheRows('nodes', data).then(() => setNodes(data)));
     const channel = supabase.channel('vari-live')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crowd_reports' }, (payload) => setReports((r) => [payload.new as CrowdReport, ...r]))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'item_requests' }, (payload) => setItems((r) => [payload.new as ItemRequest, ...r.filter((i) => i.id !== payload.new.id)]))
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sightings' }, (payload) => setSightings((r) => [payload.new as Sighting, ...r]))
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sos_alerts' }, (payload) => setSosAlerts((r) => [payload.new as SosAlert, ...r]))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crowd_reports' }, (payload) => setReports((r) => [payload.new as CrowdReport, ...r.filter((i) => i.id !== payload.new.id && !(i.pending && i.node_id === payload.new.node_id && i.density === payload.new.density && i.reported_by === payload.new.reported_by))]))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'item_requests' }, (payload) => setItems((r) => [payload.new as ItemRequest, ...r.filter((i) => i.id !== payload.new.id && !(i.pending && i.item_name === payload.new.item_name && i.requester_id === payload.new.requester_id))]))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sightings' }, (payload) => setSightings((r) => [payload.new as Sighting, ...r.filter((i) => i.id !== payload.new.id && !(i.pending && i.member_id === payload.new.member_id && i.node_id === payload.new.node_id && i.note === payload.new.note))]))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sos_alerts' }, (payload) => setSosAlerts((r) => [payload.new as SosAlert, ...r.filter((i) => i.id !== payload.new.id && !(i.pending && i.member_id === payload.new.member_id && i.node_id === payload.new.node_id && i.status === payload.new.status))]))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, []);
 
   useEffect(() => {
     const map = L.map('map', { zoomControl: false }).setView([17.95, 74.7], 8);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, crossOrigin: true }).addTo(map);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18, crossOrigin: true }).addTo(map);
     const latest = new Map<string, Density>();
     reports.forEach((r) => !latest.has(r.node_id) && latest.set(r.node_id, r.density));
-    nodes.forEach((node) => L.circleMarker([node.lat, node.lng], { radius: 11, color: '#7c2d12', fillColor: densityClass[latest.get(node.id) ?? 'medium'], fillOpacity: 0.9 })
-      .bindPopup(`${node.name}: ${latest.get(node.id) ?? 'medium'} crowd`).addTo(map));
+    nodes.forEach((node) => L.circleMarker([node.lat, node.lng], { radius: 11, color: '#7c2d12', fillColor: densityClass[latest.get(node.id) ?? 'unknown'], fillOpacity: 0.9 })
+      .bindPopup(`${node.name}: ${latest.get(node.id) ?? 'no data'} crowd`).addTo(map));
     L.polyline(nodes.map((n) => [n.lat, n.lng]), { color: '#ea580c', weight: 4 }).addTo(map);
     return () => map.remove();
   }, [nodes, reports]);
 
-  const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'medium' as Density })), [nodes, reports]);
+  const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
 
   async function reportDensity(density: Density) {
     const payload = { node_id: selectedNode, density, reported_by: demoMember };
-    setReports((r) => [{ ...payload, pending: true }, ...r]);
-    await queueWrite('crowd_reports', payload);
+    const result = await queueWrite<CrowdReport>('crowd_reports', payload);
+    setReports((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
   }
 
   async function requestItem() {
     if (!itemName.trim()) return;
     const payload = { requester_id: demoMember, item_name: itemName, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'open' };
-    setItems((r) => [{ ...payload, pending: true } as ItemRequest, ...r]);
     setItemName('');
-    await queueWrite('item_requests', payload);
+    const result = await queueWrite<ItemRequest>('item_requests', payload);
+    setItems((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
   }
 
   async function checkIn() {
     const payload = { member_id: demoMember, node_id: selectedNode, reported_by: demoMember, note: `Self check-in for ${groupCode}` };
-    setSightings((r) => [{ ...payload, pending: true }, ...r]);
-    await queueWrite('sightings', payload);
+    const result = await queueWrite<Sighting>('sightings', payload);
+    setSightings((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
   }
 
   async function sendSos() {
     const payload = { member_id: demoMember, node_id: selectedNode, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'active' };
-    setSosAlerts((r) => [{ ...payload, pending: true } as SosAlert, ...r]);
-    await queueWrite('sos_alerts', payload, 'sos');
+    const result = await queueWrite<SosAlert>('sos_alerts', payload, 'sos');
+    setSosAlerts((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
   }
 
   return <main className="min-h-screen bg-orange-50 text-stone-900">
