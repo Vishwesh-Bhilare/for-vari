@@ -17,7 +17,7 @@ const emptyForm: ApplicationForm = {
   full_name: '',
   phone: '',
   emergency_contact: '',
-  preferred_station: 'Mukkam - Wakhri',
+  preferred_station: '',
   age: '25',
   city: '',
   experience: '',
@@ -42,20 +42,16 @@ export function VolunteerApplication({
     if (!userId || submitting) return;
     setSubmitting(true);
 
-    const formattedExperience = [
-      form.experience.trim() ? `Experience: ${form.experience.trim()}` : '',
-      form.preferred_station ? `Station: ${form.preferred_station}` : '',
-      form.emergency_contact.trim() ? `Emergency Contact: ${form.emergency_contact.trim()}` : ''
-    ].filter(Boolean).join(' | ');
-
     const payload = {
       user_id: userId,
       full_name: form.full_name.trim(),
       phone: form.phone.trim(),
+      emergency_contact: form.emergency_contact.trim(),
+      preferred_station: form.preferred_station || null,
       age: Number(form.age) || 25,
       city: form.city.trim() || 'Pune',
-      experience: formattedExperience || 'Volunteer Seva',
-      why_volunteer: form.why_volunteer.trim() || `Preferred Station: ${form.preferred_station}`,
+      experience: form.experience.trim() || 'Volunteer Seva',
+      why_volunteer: form.why_volunteer.trim(),
       status: 'pending' as const
     };
 
@@ -145,20 +141,16 @@ export function VolunteerApplication({
           onChange={(e) => setForm({ ...form, preferred_station: e.target.value })}
         >
           {nodes.length > 0 ? (
-            nodes.map((node) => (
-              <option key={node.id} value={node.name}>
+            <>
+              <option value="">Select a station</option>
+              {nodes.map((node) => (
+              <option key={node.id} value={node.id}>
                 {node.name}
               </option>
-            ))
-          ) : (
-            <>
-              <option value="Mukkam - Wakhri">Mukkam - Wakhri</option>
-              <option value="Saswad">Saswad</option>
-              <option value="Dehu">Dehu</option>
-              <option value="Pune Halt">Pune Halt</option>
-              <option value="Lonand">Lonand</option>
-              <option value="Pandharpur">Pandharpur</option>
+            ))}
             </>
+          ) : (
+            <option value="">Route stations unavailable</option>
           )}
         </select>
       </div>

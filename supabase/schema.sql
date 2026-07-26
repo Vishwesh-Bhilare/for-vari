@@ -20,6 +20,7 @@ create table if not exists profiles (
   display_name text,
   phone text,
   emergency_contact text,
+  photo_url text,
   node_id uuid references nodes(id),
   approved boolean default false,
   group_id uuid references groups(id),
@@ -33,6 +34,8 @@ create table if not exists volunteer_applications (
   user_id uuid not null references profiles(id) on delete cascade,
   full_name text not null,
   phone text not null,
+  emergency_contact text,
+  preferred_station uuid references nodes(id),
   age int not null,
   city text not null,
   experience text not null,
@@ -173,7 +176,7 @@ create policy "authenticated users can insert presence_pings" on presence_pings 
 -- Supabase Realtime only emits postgres_changes for tables in this publication.
 do $$
 begin
-  alter publication supabase_realtime add table crowd_reports, item_requests, sightings, sos_alerts, profiles, volunteer_applications;
+  alter publication supabase_realtime add table crowd_reports, item_requests, sightings, sos_alerts, profiles, volunteer_applications, nodes;
 exception
   when duplicate_object then null;
 end $$;
