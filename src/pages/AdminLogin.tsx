@@ -285,35 +285,43 @@ export function AdminLogin({
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
-            {pending.map((application) => (
-              <div
-                key={application.id}
-                className="rounded-2xl border border-amber-200/80 bg-amber-50/30 p-5 shadow-sm flex flex-col justify-between"
-              >
-                <div>
-                  <h3 className="text-lg font-bold text-stone-900">{application.full_name}</h3>
+            {pending.map((application) => {
+              const station = application.preferred_station || 
+                (application.experience?.match(/Station:\s*([^|]+)/)?.[1]?.trim()) || 
+                (application.why_volunteer?.match(/Preferred Station:\s*(.+)/)?.[1]?.trim()) || 
+                'Mukkam - Wakhri';
 
-                  <div className="mt-2 space-y-1 text-xs text-stone-600">
-                    <p className="flex items-center gap-1">
-                      <span>📞</span> <b>Phone:</b> {application.phone}
-                    </p>
-                    <p className="flex items-center gap-1">
-                      <span>🚨</span> <b>Emergency Contact:</b> {application.emergency_contact || '+91 91234 56789'}
-                    </p>
-                    <p className="flex items-center gap-1">
-                      <span>📍</span> <b>Preferred Station:</b>{' '}
-                      <span className="font-bold text-stone-800">
-                        {application.preferred_station || 'Mukkam - Wakhri'}
-                      </span>
-                    </p>
+              const emergency = application.emergency_contact || 
+                (application.experience?.match(/Emergency Contact:\s*([^|]+)/)?.[1]?.trim()) || 
+                '+91 91234 56789';
+
+              return (
+                <div
+                  key={application.id}
+                  className="rounded-2xl border border-amber-200/80 bg-amber-50/30 p-5 shadow-sm flex flex-col justify-between"
+                >
+                  <div>
+                    <h3 className="text-lg font-bold text-stone-900">{application.full_name}</h3>
+
+                    <div className="mt-2 space-y-1 text-xs text-stone-600">
+                      <p className="flex items-center gap-1">
+                        <span>📞</span> <b>Phone:</b> {application.phone}
+                      </p>
+                      <p className="flex items-center gap-1">
+                        <span>🚨</span> <b>Emergency Contact:</b> {emergency}
+                      </p>
+                      <p className="flex items-center gap-1">
+                        <span>📍</span> <b>Preferred Station:</b>{' '}
+                        <span className="font-bold text-stone-800">{station}</span>
+                      </p>
+                    </div>
+
+                    {application.experience && (
+                      <p className="mt-3 text-xs text-stone-700 bg-white/80 p-2.5 rounded-xl border border-amber-100">
+                        <b>Experience:</b> {application.experience}
+                      </p>
+                    )}
                   </div>
-
-                  {application.experience && (
-                    <p className="mt-3 text-xs text-stone-700 bg-white/80 p-2.5 rounded-xl border border-amber-100">
-                      <b>Experience:</b> {application.experience}
-                    </p>
-                  )}
-                </div>
 
                 <div className="mt-4 flex gap-2">
                   <button
@@ -330,7 +338,8 @@ export function AdminLogin({
                   </button>
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         )}
       </div>

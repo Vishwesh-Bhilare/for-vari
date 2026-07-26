@@ -42,20 +42,27 @@ export function VolunteerApplication({
     if (!userId || submitting) return;
     setSubmitting(true);
 
+    const formattedExperience = [
+      form.experience.trim() ? `Experience: ${form.experience.trim()}` : '',
+      form.preferred_station ? `Station: ${form.preferred_station}` : '',
+      form.emergency_contact.trim() ? `Emergency Contact: ${form.emergency_contact.trim()}` : ''
+    ].filter(Boolean).join(' | ');
+
     const payload = {
       user_id: userId,
       full_name: form.full_name.trim(),
       phone: form.phone.trim(),
-      emergency_contact: form.emergency_contact.trim(),
-      preferred_station: form.preferred_station,
       age: Number(form.age) || 25,
-      city: form.city.trim() || 'Maharashtra',
-      experience: form.experience.trim() || 'Wari Seva',
-      why_volunteer: form.why_volunteer.trim() || 'To assist pilgrims',
+      city: form.city.trim() || 'Pune',
+      experience: formattedExperience || 'Volunteer Seva',
+      why_volunteer: form.why_volunteer.trim() || `Preferred Station: ${form.preferred_station}`,
       status: 'pending' as const
     };
 
     if (isSupabaseConfigured) {
+      if (form.emergency_contact.trim()) {
+        void supabase.from('profiles').update({ emergency_contact: form.emergency_contact.trim() }).eq('id', userId);
+      }
       const { error } = await supabase.from('volunteer_applications').insert(payload);
       setSubmitting(false);
       if (error) {
