@@ -8,6 +8,7 @@ export interface Profile {
   display_name?: string;
   phone?: string;
   emergency_contact?: string;
+  photo_url?: string;
   node_id?: string;
   approved?: boolean;
   group_id?: string;

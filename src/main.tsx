@@ -75,12 +75,16 @@ function App() {
   const [items, setItems] = useState<ItemRequest[]>([]);
   const [sightings, setSightings] = useState<Sighting[]>([]);
   const [sosAlerts, setSosAlerts] = useState<SosAlert[]>([]);
-  const [selectedNode, setSelectedNode] = useState('55555555-5555-4555-8555-555555555555');
+  const [selectedNode, setSelectedNode] = useState('');
+  const [checkInNode, setCheckInNode] = useState('');
   const [itemName, setItemName] = useState('');
-  const [groupCode, setGroupCode] = useState('WARI-7F2K');
-  const [registration, setRegistration] = useState<Registration>({ name: '', phone: '', emergency: '', groupCode: makeGroupCode() });
+  const [groupCode, setGroupCode] = useState('');
+  const [registration, setRegistration] = useState<Registration>({ name: '', phone: '', emergency: '', groupCode: '' });
   const [registeredGroup, setRegisteredGroup] = useState('');
-  const [familyCode, setFamilyCode] = useState('WARI-7F2K');
+  const [familyCode, setFamilyCode] = useState('');
+  const [registeredProfileCount, setRegisteredProfileCount] = useState(0);
+  const [familyProfiles, setFamilyProfiles] = useState<Profile[]>([]);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string }>();
 
   const position = usePosition();
   const mapRef = useRef<L.Map | null>(null);
@@ -99,12 +103,15 @@ function App() {
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
-    void supabase.from('nodes').select('*').order('sequence_order').then(({ data }) => data && cacheRows('nodes', data).then(() => setNodes(data)));
+    void supabase.from('nodes').select('*').order('sequence_order').then(({ data }) => { if (data && data.length > 0) void cacheRows('nodes', data).then(() => setNodes(data)); });
+    void supabase.from('profiles').select('*', { count: 'exact', head: true }).then(({ count }) => setRegisteredProfileCount(count ?? 0));
     const channel = supabase.channel('vari-live')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crowd_reports' }, (p) => setReports((r) => [p.new as CrowdReport, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.node_id === p.new.node_id && i.density === p.new.density && i.reported_by === p.new.reported_by))]))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'item_requests' }, (p) => { const row = p.new as ItemRequest; setItems((r) => [row, ...r.filter((i) => i.id !== row.id && !(i.pending && i.item_name === row.item_name && i.requester_id === row.requester_id))]); })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sightings' }, (p) => setSightings((r) => [p.new as Sighting, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.member_id === p.new.member_id && i.node_id === p.new.node_id && i.note === p.new.note))]))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sos_alerts' }, (p) => setSosAlerts((r) => [p.new as SosAlert, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.member_id === p.new.member_id && i.node_id === p.new.node_id && i.status === p.new.status))]))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'profiles' }, () => setRegisteredProfileCount((count) => count + 1))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'nodes' }, () => void supabase.from('nodes').select('*').order('sequence_order').then(({ data }) => data && setNodes(data as NodePoint[])))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, []);
@@ -129,7 +136,10 @@ function App() {
   }, [view, nodes, reports]);
 
   const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
-  const familySightings = useMemo(() => sightings.filter((s) => s.group_code === familyCode || (s.note ?? '').includes(familyCode)), [sightings, familyCode]);
+  const nearestNodeId = useMemo(() => nodes.map((node) => ({ node, distance: getDistanceMeters(position?.coords, node.lat, node.lng) })).sort((a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY))[0]?.node.id ?? nodes[0]?.id ?? '', [nodes, position?.coords]);
+  useEffect(() => { if (nearestNodeId && !selectedNode) setSelectedNode(nearestNodeId); }, [nearestNodeId, selectedNode]);
+  useEffect(() => { if (nearestNodeId && !checkInNode) setCheckInNode(nearestNodeId); }, [nearestNodeId, checkInNode]);
+  const familySightings = useMemo(() => sightings.filter((s) => familyCode && s.group_code === familyCode), [sightings, familyCode]);
   const myActiveRequest = useMemo(
     () => items.find((item) => item.requester_id === currentMemberId && ['open', 'accepted'].includes(item.status ?? 'open') && !isExpiredOpenRequest(item)),
     [items, currentMemberId]
@@ -140,10 +150,23 @@ function App() {
     .sort((a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY)), [items, position?.coords]);
   const recentActivityItems = useMemo(() => items.filter((item) => !['open', 'accepted'].includes(item.status ?? 'open') || isExpiredOpenRequest(item)), [items]);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured || !familyCode.trim()) { setFamilyProfiles([]); return; }
+    void supabase.from('groups').select('id').eq('group_code', familyCode.trim()).maybeSingle().then(async ({ data }) => {
+      if (!data?.id) { setFamilyProfiles([]); return; }
+      const { data: profiles } = await supabase.from('profiles').select('*').eq('group_id', data.id);
+      setFamilyProfiles((profiles ?? []) as Profile[]);
+    });
+  }, [familyCode]);
+
   async function reportDensity(density: Density) {
-    if (density === 'unknown' || !currentMemberId) return;
+    if (density === 'unknown' || !currentMemberId || !selectedNode) {
+      setNotice({ type: 'error', text: 'Choose a route node before reporting crowd density.' });
+      return;
+    }
     const result = await queueWrite<CrowdReport>('crowd_reports', { node_id: selectedNode, density, reported_by: currentMemberId });
     setReports((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
+    setNotice({ type: 'success', text: 'Crowd density report saved.' });
   }
   async function requestItem() {
     if (!itemName.trim() || !currentMemberId || myActiveRequest) return;
@@ -169,28 +192,74 @@ function App() {
     await updateItemRequest(item, { status: 'open', accepted_by: null, accepted_at: null, accepter_lat: null, accepter_lng: null });
   }
   async function registerGroup() {
-    if (!registration.name.trim() || !currentMemberId || !isSupabaseConfigured) return;
-    const groupId = crypto.randomUUID();
+    if (!registration.name.trim() || !currentMemberId || !isSupabaseConfigured) {
+      setNotice({ type: 'error', text: 'Please sign in and enter a name before registering a group.' });
+      return;
+    }
+    const normalizedGroupCode = registration.groupCode.trim();
+    if (!normalizedGroupCode) {
+      setNotice({ type: 'error', text: 'Enter or generate a family group code.' });
+      return;
+    }
+
+    let groupId: string;
+    const existing = await supabase.from('groups').select('id').eq('group_code', normalizedGroupCode).maybeSingle();
+    if (existing.error) {
+      setNotice({ type: 'error', text: existing.error.message });
+      return;
+    }
+    if (existing.data?.id) {
+      groupId = existing.data.id;
+    } else {
+      groupId = crypto.randomUUID();
+      const { error } = await supabase.from('groups').insert({ id: groupId, group_code: normalizedGroupCode });
+      if (error) {
+        setNotice({ type: 'error', text: error.message });
+        return;
+      }
+    }
+
     let photo_url: string | undefined;
     if (registration.photo) {
       const path = `${groupId}/${currentMemberId}-${registration.photo.name}`;
-      const { data } = await supabase.storage.from('member-photos').upload(path, registration.photo, { upsert: true });
+      const { data, error } = await supabase.storage.from('member-photos').upload(path, registration.photo, { upsert: true });
+      if (error) {
+        setNotice({ type: 'error', text: `Photo upload failed: ${error.message}` });
+        return;
+      }
       if (data) photo_url = supabase.storage.from('member-photos').getPublicUrl(data.path).data.publicUrl;
     }
-    await supabase.from('groups').insert({ id: groupId, group_code: registration.groupCode });
-    await supabase.from('profiles').update({ group_id: groupId, display_name: registration.name, phone: registration.phone, emergency_contact: registration.emergency }).eq('id', currentMemberId);
-    if (photo_url) console.info('Uploaded profile photo', photo_url);
-    setGroupCode(registration.groupCode); setFamilyCode(registration.groupCode); setRegisteredGroup(registration.groupCode);
+    const profilePatch = { group_id: groupId, display_name: registration.name, phone: registration.phone, emergency_contact: registration.emergency, ...(photo_url ? { photo_url } : {}) };
+    const { error } = await supabase.from('profiles').update(profilePatch).eq('id', currentMemberId);
+    if (error) {
+      setNotice({ type: 'error', text: error.message });
+      return;
+    }
+    setGroupCode(normalizedGroupCode); setFamilyCode(normalizedGroupCode); setRegisteredGroup(normalizedGroupCode);
+    setNotice({ type: 'success', text: existing.data?.id ? 'Joined existing group.' : 'Created new group.' });
   }
   async function checkIn() {
-    if (!currentMemberId) return;
-    const result = await queueWrite<Sighting>('sightings', { member_id: currentMemberId, node_id: selectedNode, reported_by: currentMemberId, group_code: groupCode, note: `Self check-in for ${groupCode}` });
-    setSightings((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
+    if (!currentMemberId || !checkInNode || !groupCode.trim()) {
+      setNotice({ type: 'error', text: 'Choose a check-in node and enter your family group code.' });
+      return;
+    }
+    try {
+      const result = await queueWrite<Sighting>('sightings', { member_id: currentMemberId, node_id: checkInNode, reported_by: currentMemberId, group_code: groupCode.trim(), note: `Self check-in for ${groupCode.trim()}` });
+      setSightings((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
+      setNotice({ type: 'success', text: 'Check-in saved.' });
+    } catch (error) {
+      setNotice({ type: 'error', text: error instanceof Error ? error.message : 'Check-in failed.' });
+    }
   }
   async function sendSos() {
-    if (!currentMemberId) return;
-    const result = await queueWrite<SosAlert>('sos_alerts', { member_id: currentMemberId, node_id: selectedNode, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'active' }, 'sos');
-    setSosAlerts((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
+    if (!currentMemberId || !checkInNode) return;
+    try {
+      const result = await queueWrite<SosAlert>('sos_alerts', { member_id: currentMemberId, node_id: checkInNode, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'active' }, 'sos');
+      setSosAlerts((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
+      setNotice({ type: 'success', text: 'SOS sent.' });
+    } catch (error) {
+      setNotice({ type: 'error', text: error instanceof Error ? error.message : 'SOS failed.' });
+    }
   }
 
   const activeSosCount = sosAlerts.filter((s) => s.status === 'active').length;
@@ -232,14 +301,22 @@ function App() {
         </div>
       </header>
 
+      {notice && (
+        <div className={`mx-4 mt-4 rounded-xl border p-3 text-sm font-semibold ${notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+          {notice.text}
+        </div>
+      )}
+
       {view === 'admin' ? (
         <div className="p-4 sm:p-6">
           <AdminLogin
             userId={currentMemberId}
-            role="admin"
+            role={role}
             activeSosCount={activeSosCount}
-            registeredProfileCount={4}
+            registeredProfileCount={registeredProfileCount}
             routeStationCount={nodes.length}
+            nodes={nodes}
+            onNodesChange={setNodes}
           />
         </div>
       ) : (
@@ -407,8 +484,10 @@ function App() {
                 <input
                   className="w-full rounded border p-2"
                   value={registration.groupCode}
+                  placeholder="Enter or generate a family group code"
                   onChange={(e) => setRegistration({ ...registration, groupCode: e.target.value })}
                 />
+                <button type="button" className="w-full rounded bg-stone-100 px-3 py-2 text-stone-700 text-sm font-semibold shadow" onClick={() => setRegistration({ ...registration, groupCode: makeGroupCode() })}>Generate group code</button>
                 <input
                   className="w-full rounded border p-2"
                   type="file"
@@ -429,12 +508,18 @@ function App() {
                 className="mb-2 w-full rounded border p-2 text-sm"
                 value={groupCode}
                 onChange={(e) => setGroupCode(e.target.value)}
+                placeholder="Enter your family's group code"
               />
+              <label className="mb-2 block text-xs font-semibold text-stone-700">Check-in location
+                <select className="mt-1 w-full rounded border p-2 text-sm" value={checkInNode} onChange={(e) => setCheckInNode(e.target.value)}>
+                  {nodes.map((node) => <option key={node.id} value={node.id}>{node.id === nearestNodeId ? `${node.name} (nearest)` : node.name}</option>)}
+                </select>
+              </label>
               <button
                 className="w-full rounded bg-amber-600 px-3 py-2 text-white text-sm font-semibold shadow"
                 onClick={() => void checkIn()}
               >
-                Check in at selected node
+                Check in at check-in location
               </button>
               <input
                 className="mt-3 w-full rounded border p-2 text-sm"
@@ -442,6 +527,16 @@ function App() {
                 onChange={(e) => setFamilyCode(e.target.value)}
                 placeholder="Family view group code"
               />
+              {familyProfiles.length > 0 && (
+                <div className="mt-3 space-y-2 rounded-xl bg-stone-50 p-3">
+                  {familyProfiles.map((member) => (
+                    <div key={member.id} className="flex items-center gap-2 text-sm">
+                      {member.photo_url ? <img src={member.photo_url} alt="" className="h-8 w-8 rounded-full object-cover" /> : <span className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 text-xs font-bold text-orange-700">{(member.display_name ?? '?').slice(0, 1)}</span>}
+                      <span>{member.display_name ?? 'Unnamed family member'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {familySightings.slice(0, 5).map((s, idx) => (
                 <p className="border-b py-2 text-sm" key={s.id ?? idx}>
                   {s.note ?? 'Sighting'} {s.pending && '· pending'}
