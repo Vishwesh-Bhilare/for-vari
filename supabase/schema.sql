@@ -21,9 +21,25 @@ create table if not exists profiles (
   phone text,
   emergency_contact text,
   node_id uuid references nodes(id),
-  requested_role text check (requested_role in ('volunteer')),
   approved boolean default false,
   group_id uuid references groups(id),
+  created_at timestamptz default now()
+);
+
+alter table profiles drop column if exists requested_role;
+
+create table if not exists volunteer_applications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  full_name text not null,
+  phone text not null,
+  age int not null,
+  city text not null,
+  experience text not null,
+  why_volunteer text not null,
+  status text not null default 'pending' check (status in ('pending','approved','rejected')),
+  reviewed_by uuid references profiles(id),
+  reviewed_at timestamptz,
   created_at timestamptz default now()
 );
 
@@ -98,6 +114,7 @@ create table if not exists presence_pings (
 alter table groups enable row level security;
 alter table nodes enable row level security;
 alter table profiles enable row level security;
+alter table volunteer_applications enable row level security;
 alter table crowd_reports enable row level security;
 alter table item_requests enable row level security;
 alter table sightings enable row level security;
@@ -107,7 +124,7 @@ alter table presence_pings enable row level security;
 do $$
 declare t text;
 begin
-  foreach t in array array['groups','nodes','profiles','crowd_reports','item_requests','sightings','sos_alerts','presence_pings'] loop
+  foreach t in array array['groups','nodes','profiles','volunteer_applications','crowd_reports','item_requests','sightings','sos_alerts','presence_pings'] loop
     execute format('drop policy if exists hackathon_all on %I', t);
   end loop;
 end $$;
@@ -131,6 +148,10 @@ create policy "users read own profile" on profiles for select using (auth.uid() 
 create policy "users update own profile" on profiles for update using (auth.uid() = id) with check (auth.uid() = id and role = 'pilgrim' and approved = false);
 create policy "admins manage profiles" on profiles for update using (public.is_admin()) with check (public.is_admin());
 
+create policy "users read own volunteer applications" on volunteer_applications for select using (auth.uid() = user_id or public.is_admin());
+create policy "users create own volunteer applications" on volunteer_applications for insert with check (auth.uid() = user_id and status = 'pending');
+create policy "admins review volunteer applications" on volunteer_applications for update using (public.is_admin()) with check (public.is_admin());
+
 create policy "anyone can read crowd_reports" on crowd_reports for select using (true);
 create policy "authenticated users can insert crowd_reports" on crowd_reports for insert with check (auth.uid() is not null and reported_by = auth.uid());
 
@@ -152,7 +173,7 @@ create policy "authenticated users can insert presence_pings" on presence_pings 
 -- Supabase Realtime only emits postgres_changes for tables in this publication.
 do $$
 begin
-  alter publication supabase_realtime add table crowd_reports, item_requests, sightings, sos_alerts, profiles;
+  alter publication supabase_realtime add table crowd_reports, item_requests, sightings, sos_alerts, profiles, volunteer_applications;
 exception
   when duplicate_object then null;
 end $$;
