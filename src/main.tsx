@@ -21,6 +21,36 @@ const seedNodes: NodePoint[] = [
 
 const densityClass: Record<Density, string> = { unknown: '#94a3b8', low: '#16a34a', medium: '#f59e0b', high: '#dc2626' };
 
+const REQUEST_EXPIRY_MS = 2 * 60 * 60 * 1000;
+const COMMON_ITEM_CHIPS = ['Water', 'Torch/Flashlight', 'Phone charger', 'Medicine', 'Blanket'];
+
+function getDistanceMeters(from: GeolocationPosition['coords'] | undefined, lat?: number, lng?: number) {
+  if (!from || lat === undefined || lng === undefined) return undefined;
+  const toRadians = (degrees: number) => degrees * Math.PI / 180;
+  const earthRadiusMeters = 6_371_000;
+  const deltaLat = toRadians(lat - from.latitude);
+  const deltaLng = toRadians(lng - from.longitude);
+  const a = Math.sin(deltaLat / 2) ** 2
+    + Math.cos(toRadians(from.latitude)) * Math.cos(toRadians(lat)) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(meters?: number) {
+  if (meters === undefined) return 'distance unknown';
+  if (meters < 1_000) return `~${Math.max(10, Math.round(meters / 10) * 10)}m away`;
+  return `~${(meters / 1_000).toFixed(meters < 10_000 ? 1 : 0)}km away`;
+}
+
+function isExpiredOpenRequest(item: ItemRequest) {
+  if ((item.status ?? 'open') !== 'open' || !item.created_at) return false;
+  return Date.now() - new Date(item.created_at).getTime() > REQUEST_EXPIRY_MS;
+}
+
+function directionsUrl(lat?: number, lng?: number) {
+  if (lat === undefined || lng === undefined) return undefined;
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+}
+
 type Registration = { name: string; phone: string; emergency: string; groupCode: string; photo?: File };
 const makeGroupCode = () => `WARI-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
 
@@ -100,6 +130,15 @@ function App() {
 
   const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
   const familySightings = useMemo(() => sightings.filter((s) => s.group_code === familyCode || (s.note ?? '').includes(familyCode)), [sightings, familyCode]);
+  const myActiveRequest = useMemo(
+    () => items.find((item) => item.requester_id === currentMemberId && ['open', 'accepted'].includes(item.status ?? 'open') && !isExpiredOpenRequest(item)),
+    [items, currentMemberId]
+  );
+  const sortedPrimaryItems = useMemo(() => items
+    .filter((item) => ['open', 'accepted'].includes(item.status ?? 'open') && !isExpiredOpenRequest(item))
+    .map((item) => ({ item, distance: getDistanceMeters(position?.coords, item.lat, item.lng) }))
+    .sort((a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY)), [items, position?.coords]);
+  const recentActivityItems = useMemo(() => items.filter((item) => !['open', 'accepted'].includes(item.status ?? 'open') || isExpiredOpenRequest(item)), [items]);
 
   async function reportDensity(density: Density) {
     if (density === 'unknown' || !currentMemberId) return;
@@ -107,15 +146,27 @@ function App() {
     setReports((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
   }
   async function requestItem() {
-    if (!itemName.trim() || !currentMemberId) return;
+    if (!itemName.trim() || !currentMemberId || myActiveRequest) return;
     const result = await queueWrite<ItemRequest>('item_requests', { requester_id: currentMemberId, item_name: itemName, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'open' });
     setItemName(''); setItems((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
   }
-  async function acceptItem(item: ItemRequest) {
-    if (!item.id || !currentMemberId || item.requester_id === currentMemberId || !isSupabaseConfigured) return;
-    const patch = { status: 'accepted' as const, accepted_by: currentMemberId, accepted_at: new Date().toISOString(), accepter_lat: position?.coords.latitude, accepter_lng: position?.coords.longitude };
+  async function updateItemRequest(item: ItemRequest, patch: Record<string, unknown>) {
+    if (!item.id || !currentMemberId || !isSupabaseConfigured) return;
     const { data, error } = await supabase.from('item_requests').update(patch).eq('id', item.id).select().single();
     if (!error) setItems((r) => r.map((i) => i.id === item.id ? (data as ItemRequest) : i));
+  }
+  async function acceptItem(item: ItemRequest) {
+    if (item.requester_id === currentMemberId) return;
+    await updateItemRequest(item, { status: 'accepted', accepted_by: currentMemberId, accepted_at: new Date().toISOString(), accepter_lat: position?.coords.latitude, accepter_lng: position?.coords.longitude });
+  }
+  async function completeItem(item: ItemRequest) {
+    await updateItemRequest(item, { status: 'completed' });
+  }
+  async function cancelItem(item: ItemRequest) {
+    await updateItemRequest(item, { status: 'cancelled' });
+  }
+  async function unacceptItem(item: ItemRequest) {
+    await updateItemRequest(item, { status: 'open', accepted_by: null, accepted_at: null, accepter_lat: null, accepter_lng: null });
   }
   async function registerGroup() {
     if (!registration.name.trim() || !currentMemberId || !isSupabaseConfigured) return;
@@ -268,6 +319,18 @@ function App() {
           <section className="grid gap-4 p-4 md:grid-cols-3">
             {/* Column 1: Peer item lending */}
             <Panel title="Peer item lending">
+              <div className="mb-2 flex flex-wrap gap-2">
+                {COMMON_ITEM_CHIPS.map((chip) => (
+                  <button key={chip} type="button" className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 hover:bg-orange-100" onClick={() => setItemName(chip)}>
+                    {chip}
+                  </button>
+                ))}
+              </div>
+              {myActiveRequest && (
+                <p className="mb-2 rounded bg-amber-50 p-2 text-xs font-semibold text-amber-800">
+                  You already have an active request for {myActiveRequest.item_name}. Complete or cancel it before creating another.
+                </p>
+              )}
               <div className="flex gap-2">
                 <input
                   className="min-w-0 flex-1 rounded border p-2 text-sm"
@@ -276,36 +339,48 @@ function App() {
                   placeholder="Need: blanket, water..."
                 />
                 <button
-                  className="rounded bg-orange-600 px-3 text-white text-sm font-semibold hover:bg-orange-700"
+                  className="rounded bg-orange-600 px-3 text-white text-sm font-semibold hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300"
+                  disabled={Boolean(myActiveRequest)}
                   onClick={() => void requestItem()}
                 >
                   Request
                 </button>
               </div>
-              {items.slice(0, 5).map((i, idx) => (
+              {sortedPrimaryItems.slice(0, 5).map(({ item: i, distance }, idx) => {
+                const requesterMapUrl = directionsUrl(i.lat, i.lng);
+                const accepterMapUrl = directionsUrl(i.accepter_lat, i.accepter_lng);
+                return (
                 <div className="border-b py-2 text-sm text-stone-700" key={i.id ?? idx}>
                   <p>
-                    {i.item_name} · <span className="capitalize">{i.status ?? 'open'}</span>{' '}
+                    {i.item_name} · <span className="capitalize">{i.status ?? 'open'}</span> · {formatDistance(distance)}{' '}
                     {i.pending && '· pending'}
                   </p>
-                  {i.status === 'open' && i.requester_id !== currentMemberId && (
-                    <button
-                      className="mt-1 rounded bg-green-600 px-2 py-1 text-xs text-white font-semibold shadow"
-                      onClick={() => void acceptItem(i)}
-                    >
-                      Accept
-                    </button>
+                  {(i.status ?? 'open') === 'open' && i.requester_id === currentMemberId && (
+                    <button className="mt-1 rounded bg-stone-600 px-2 py-1 text-xs text-white font-semibold shadow" onClick={() => void cancelItem(i)}>Cancel</button>
                   )}
-                  {i.status === 'accepted' &&
-                    (i.requester_id === currentMemberId || i.accepted_by === currentMemberId) && (
-                      <p className="mt-1 rounded bg-slate-100 p-2 text-xs">
-                        Requester: {i.lat?.toFixed(5) ?? 'n/a'}, {i.lng?.toFixed(5) ?? 'n/a'}
-                        <br />
-                        Accepter: {i.accepter_lat?.toFixed(5) ?? 'n/a'}, {i.accepter_lng?.toFixed(5) ?? 'n/a'}
-                      </p>
-                    )}
+                  {(i.status ?? 'open') === 'open' && i.requester_id !== currentMemberId && (
+                    <button className="mt-1 rounded bg-green-600 px-2 py-1 text-xs text-white font-semibold shadow" onClick={() => void acceptItem(i)}>Accept</button>
+                  )}
+                  {i.status === 'accepted' && (i.requester_id === currentMemberId || i.accepted_by === currentMemberId) && (
+                    <div className="mt-1 space-y-1 rounded bg-slate-100 p-2 text-xs">
+                      <p>{requesterMapUrl ? <a className="font-semibold text-blue-700 underline" href={requesterMapUrl} target="_blank" rel="noreferrer">Navigate to requester</a> : 'Requester location unavailable'}</p>
+                      <p>{accepterMapUrl ? <a className="font-semibold text-blue-700 underline" href={accepterMapUrl} target="_blank" rel="noreferrer">Navigate to accepter</a> : 'Accepter location unavailable'}</p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <button className="rounded bg-green-700 px-2 py-1 text-white font-semibold shadow" onClick={() => void completeItem(i)}>Mark completed</button>
+                        {i.accepted_by === currentMemberId && <button className="rounded bg-amber-600 px-2 py-1 text-white font-semibold shadow" onClick={() => void unacceptItem(i)}>Can't make it</button>}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
+              );})}
+              {recentActivityItems.length > 0 && (
+                <details className="mt-3 text-sm text-stone-600">
+                  <summary className="cursor-pointer font-semibold">Recent completed, cancelled, or expired activity</summary>
+                  {recentActivityItems.slice(0, 5).map((i, idx) => (
+                    <p className="border-b py-2 text-xs" key={i.id ?? idx}>{i.item_name} · {isExpiredOpenRequest(i) ? 'expired' : i.status}</p>
+                  ))}
+                </details>
+              )}
             </Panel>
 
             {/* Column 2: Lost & found */}
