@@ -1,6 +1,6 @@
 import 'leaflet/dist/leaflet.css';
 import './style.css';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import L from 'leaflet';
 import { cacheRows, drainOutbox, getRows, queueWrite } from './db';
@@ -15,22 +15,31 @@ const seedNodes: NodePoint[] = [
   { id: '55555555-5555-4555-8555-555555555555', name: 'Mukkam - Wakhri', lat: 17.7242, lng: 75.3309, sequence_order: 5 },
   { id: '66666666-6666-4666-8666-666666666666', name: 'Pandharpur', lat: 17.6746, lng: 75.3237, sequence_order: 6 }
 ];
-
+const defaultGroupId = '77777777-7777-4777-8777-777777777777';
 const densityClass: Record<Density, string> = { unknown: '#94a3b8', low: '#16a34a', medium: '#f59e0b', high: '#dc2626' };
-const demoMember = '00000000-0000-4000-8000-000000000001';
+
+type Registration = { name: string; phone: string; emergency: string; groupCode: string; photo?: File };
+const memberId = () => {
+  const key = 'vari.memberId';
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const id = crypto.randomUUID();
+  localStorage.setItem(key, id);
+  return id;
+};
+const makeGroupCode = () => `WARI-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
 
 function usePosition() {
   const [position, setPosition] = useState<GeolocationPosition>();
   useEffect(() => {
-    const watchId = navigator.geolocation?.watchPosition(setPosition, console.warn, { enableHighAccuracy: true });
-    return () => {
-      if (watchId !== undefined) navigator.geolocation?.clearWatch(watchId);
-    };
+    const watchId = navigator.geolocation?.watchPosition(setPosition, console.warn, { enableHighAccuracy: true, maximumAge: 10_000 });
+    return () => { if (watchId !== undefined) navigator.geolocation?.clearWatch(watchId); };
   }, []);
   return position;
 }
 
 function App() {
+  const currentMemberId = useMemo(memberId, []);
   const [nodes, setNodes] = useState<NodePoint[]>(seedNodes);
   const [reports, setReports] = useState<CrowdReport[]>([]);
   const [items, setItems] = useState<ItemRequest[]>([]);
@@ -39,81 +48,99 @@ function App() {
   const [selectedNode, setSelectedNode] = useState('55555555-5555-4555-8555-555555555555');
   const [itemName, setItemName] = useState('');
   const [groupCode, setGroupCode] = useState('WARI-7F2K');
+  const [registration, setRegistration] = useState<Registration>({ name: '', phone: '', emergency: '', groupCode: makeGroupCode() });
+  const [registeredGroup, setRegisteredGroup] = useState('');
+  const [familyCode, setFamilyCode] = useState('WARI-7F2K');
   const position = usePosition();
+  const mapRef = useRef<L.Map | null>(null);
+  const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const routeRef = useRef<L.Polyline | null>(null);
 
   useEffect(() => {
     void cacheRows('nodes', seedNodes);
     void Promise.all([
-      getRows<CrowdReport>('crowd_reports').then(setReports),
-      getRows<ItemRequest>('item_requests').then(setItems),
-      getRows<Sighting>('sightings').then(setSightings),
-      getRows<SosAlert>('sos_alerts').then(setSosAlerts),
+      getRows<CrowdReport>('crowd_reports').then(setReports), getRows<ItemRequest>('item_requests').then(setItems),
+      getRows<Sighting>('sightings').then(setSightings), getRows<SosAlert>('sos_alerts').then(setSosAlerts),
       getRows<NodePoint>('nodes').then((rows) => rows.length && setNodes(rows))
     ]);
+    if (isSupabaseConfigured) void supabase.from('members').upsert({ id: currentMemberId, group_id: defaultGroupId, name: `Device ${currentMemberId.slice(0, 8)}` });
     void drainOutbox();
-  }, []);
+  }, [currentMemberId]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     void supabase.from('nodes').select('*').order('sequence_order').then(({ data }) => data && cacheRows('nodes', data).then(() => setNodes(data)));
     const channel = supabase.channel('vari-live')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crowd_reports' }, (payload) => setReports((r) => [payload.new as CrowdReport, ...r.filter((i) => i.id !== payload.new.id && !(i.pending && i.node_id === payload.new.node_id && i.density === payload.new.density && i.reported_by === payload.new.reported_by))]))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'item_requests' }, (payload) => setItems((r) => [payload.new as ItemRequest, ...r.filter((i) => i.id !== payload.new.id && !(i.pending && i.item_name === payload.new.item_name && i.requester_id === payload.new.requester_id))]))
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sightings' }, (payload) => setSightings((r) => [payload.new as Sighting, ...r.filter((i) => i.id !== payload.new.id && !(i.pending && i.member_id === payload.new.member_id && i.node_id === payload.new.node_id && i.note === payload.new.note))]))
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sos_alerts' }, (payload) => setSosAlerts((r) => [payload.new as SosAlert, ...r.filter((i) => i.id !== payload.new.id && !(i.pending && i.member_id === payload.new.member_id && i.node_id === payload.new.node_id && i.status === payload.new.status))]))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crowd_reports' }, (p) => setReports((r) => [p.new as CrowdReport, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.node_id === p.new.node_id && i.density === p.new.density && i.reported_by === p.new.reported_by))]))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'item_requests' }, (p) => { const row = p.new as ItemRequest; setItems((r) => [row, ...r.filter((i) => i.id !== row.id && !(i.pending && i.item_name === row.item_name && i.requester_id === row.requester_id))]); })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sightings' }, (p) => setSightings((r) => [p.new as Sighting, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.member_id === p.new.member_id && i.node_id === p.new.node_id && i.note === p.new.note))]))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sos_alerts' }, (p) => setSosAlerts((r) => [p.new as SosAlert, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.member_id === p.new.member_id && i.node_id === p.new.node_id && i.status === p.new.status))]))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, []);
 
   useEffect(() => {
-    const map = L.map('map', { zoomControl: false }).setView([17.95, 74.7], 8);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18, crossOrigin: true }).addTo(map);
+    if (!mapRef.current) {
+      mapRef.current = L.map('map', { zoomControl: false, attributionControl: true }).setView([17.95, 74.7], 8);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18, crossOrigin: true }).addTo(mapRef.current);
+      markerLayerRef.current = L.layerGroup().addTo(mapRef.current);
+    }
     const latest = new Map<string, Density>();
     reports.forEach((r) => !latest.has(r.node_id) && latest.set(r.node_id, r.density));
+    markerLayerRef.current?.clearLayers();
     nodes.forEach((node) => L.circleMarker([node.lat, node.lng], { radius: 11, color: '#7c2d12', fillColor: densityClass[latest.get(node.id) ?? 'unknown'], fillOpacity: 0.9 })
-      .bindPopup(`${node.name}: ${latest.get(node.id) ?? 'no data'} crowd`).addTo(map));
-    L.polyline(nodes.map((n) => [n.lat, n.lng]), { color: '#ea580c', weight: 4 }).addTo(map);
-    return () => map.remove();
+      .bindPopup(`${node.name}: ${latest.get(node.id) ?? 'no data'} crowd`).addTo(markerLayerRef.current!));
+    routeRef.current?.remove();
+    routeRef.current = L.polyline(nodes.map((n) => [n.lat, n.lng] as L.LatLngTuple), { color: '#ea580c', weight: 4 }).addTo(mapRef.current);
   }, [nodes, reports]);
 
   const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
+  const familySightings = useMemo(() => sightings.filter((s) => s.group_code === familyCode || (s.note ?? '').includes(familyCode)), [sightings, familyCode]);
 
   async function reportDensity(density: Density) {
-    const payload = { node_id: selectedNode, density, reported_by: demoMember };
-    const result = await queueWrite<CrowdReport>('crowd_reports', payload);
+    if (density === 'unknown') return;
+    const result = await queueWrite<CrowdReport>('crowd_reports', { node_id: selectedNode, density, reported_by: currentMemberId });
     setReports((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
   }
-
   async function requestItem() {
     if (!itemName.trim()) return;
-    const payload = { requester_id: demoMember, item_name: itemName, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'open' };
-    setItemName('');
-    const result = await queueWrite<ItemRequest>('item_requests', payload);
-    setItems((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
+    const result = await queueWrite<ItemRequest>('item_requests', { requester_id: currentMemberId, item_name: itemName, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'open' });
+    setItemName(''); setItems((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
   }
-
+  async function acceptItem(item: ItemRequest) {
+    if (!item.id || item.requester_id === currentMemberId || !isSupabaseConfigured) return;
+    const patch = { status: 'accepted' as const, accepted_by: currentMemberId, accepted_at: new Date().toISOString(), accepter_lat: position?.coords.latitude, accepter_lng: position?.coords.longitude };
+    const { data, error } = await supabase.from('item_requests').update(patch).eq('id', item.id).select().single();
+    if (!error) setItems((r) => r.map((i) => i.id === item.id ? (data as ItemRequest) : i));
+  }
+  async function registerGroup() {
+    if (!registration.name.trim() || !isSupabaseConfigured) return;
+    const groupId = crypto.randomUUID();
+    let photo_url: string | undefined;
+    if (registration.photo) {
+      const path = `${groupId}/${currentMemberId}-${registration.photo.name}`;
+      const { data } = await supabase.storage.from('member-photos').upload(path, registration.photo, { upsert: true });
+      if (data) photo_url = supabase.storage.from('member-photos').getPublicUrl(data.path).data.publicUrl;
+    }
+    await supabase.from('groups').insert({ id: groupId, group_code: registration.groupCode });
+    await supabase.from('members').upsert({ id: currentMemberId, group_id: groupId, name: registration.name, phone: registration.phone, emergency_contact: registration.emergency, photo_url });
+    setGroupCode(registration.groupCode); setFamilyCode(registration.groupCode); setRegisteredGroup(registration.groupCode);
+  }
   async function checkIn() {
-    const payload = { member_id: demoMember, node_id: selectedNode, reported_by: demoMember, note: `Self check-in for ${groupCode}` };
-    const result = await queueWrite<Sighting>('sightings', payload);
+    const result = await queueWrite<Sighting>('sightings', { member_id: currentMemberId, node_id: selectedNode, reported_by: currentMemberId, group_code: groupCode, note: `Self check-in for ${groupCode}` });
     setSightings((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
   }
-
   async function sendSos() {
-    const payload = { member_id: demoMember, node_id: selectedNode, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'active' };
-    const result = await queueWrite<SosAlert>('sos_alerts', payload, 'sos');
+    const result = await queueWrite<SosAlert>('sos_alerts', { member_id: currentMemberId, node_id: selectedNode, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'active' }, 'sos');
     setSosAlerts((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
   }
 
   return <main className="min-h-screen bg-orange-50 text-stone-900">
     <header className="bg-gradient-to-r from-orange-600 to-amber-500 p-5 text-white shadow"><p className="text-sm uppercase tracking-widest">Pandharpur Vari</p><h1 className="text-3xl font-bold">Offline-first Wari Companion</h1><p>Crowd density, lending, lost & found, and SOS updates sync live with Supabase when online.</p></header>
     <button onClick={sendSos} className="fixed bottom-5 right-5 z-[1000] rounded-full bg-red-600 px-6 py-4 font-bold text-white shadow-xl">SOS</button>
-    <section className="grid gap-4 p-4 lg:grid-cols-[2fr_1fr]"><div id="map" className="h-[520px] rounded-3xl border-4 border-white shadow" /><aside className="space-y-4 rounded-3xl bg-white p-4 shadow"><h2 className="text-xl font-bold">Report crowd density</h2><select className="w-full rounded border p-3" value={selectedNode} onChange={(e) => setSelectedNode(e.target.value)}>{nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}</select><div className="grid grid-cols-3 gap-2">{(['low','medium','high'] as Density[]).map((d) => <button className="rounded p-3 font-semibold text-white" style={{ background: densityClass[d] }} onClick={() => void reportDensity(d)} key={d}>{d}</button>)}</div><ul>{latestReports.map(({ node, density }) => <li className="flex justify-between border-b py-2" key={node.id}><span>{node.name}</span><b>{density}</b></li>)}</ul></aside></section>
-    <section className="grid gap-4 p-4 md:grid-cols-3"><Panel title="Peer item lending"><div className="flex gap-2"><input className="min-w-0 flex-1 rounded border p-2" value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="Need: blanket, water..."/><button className="rounded bg-orange-600 px-3 text-white" onClick={() => void requestItem()}>Request</button></div>{items.slice(0, 5).map((i, idx) => <p className="border-b py-2" key={i.id ?? idx}>{i.item_name} · {i.status ?? 'open'} {i.pending && '· pending'}</p>)}</Panel><Panel title="Lost & found"><input className="mb-2 w-full rounded border p-2" value={groupCode} onChange={(e) => setGroupCode(e.target.value)} /><button className="rounded bg-amber-600 px-3 py-2 text-white" onClick={() => void checkIn()}>Check in at selected node</button>{sightings.slice(0, 5).map((s, idx) => <p className="border-b py-2" key={s.id ?? idx}>{s.note ?? 'Sighting'} {s.pending && '· pending'}</p>)}</Panel><Panel title="Volunteer dashboard"><p className="text-sm">Auth-gated in production; demo shows live active alerts, sightings, and requests.</p>{sosAlerts.slice(0, 5).map((s, idx) => <p className="border-b py-2 text-red-700" key={s.id ?? idx}>Active SOS near {s.node_id} {s.pending && '· queued first'}</p>)}</Panel></section>
+    <section className="grid gap-4 p-4 lg:grid-cols-[2fr_1fr]"><div id="map" className="h-[520px] rounded-3xl border-4 border-white shadow" /><aside className="space-y-4 rounded-3xl bg-white p-4 shadow"><h2 className="text-xl font-bold">Report crowd density</h2><select className="w-full rounded border p-3" value={selectedNode} onChange={(e) => setSelectedNode(e.target.value)}>{nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}</select><div className="grid grid-cols-3 gap-2">{(['low','medium','high'] as Density[]).map((d) => <button className="rounded p-3 font-semibold text-white" style={{ background: densityClass[d] }} onClick={() => void reportDensity(d)} key={d}>{d}</button>)}</div><ul>{latestReports.map(({ node, density }) => <li className="flex justify-between border-b py-2" key={node.id}><span>{node.name}</span><b className={density === 'unknown' ? 'text-slate-500' : ''}>{density === 'unknown' ? 'no data yet' : density}</b></li>)}</ul></aside></section>
+    <section className="grid gap-4 p-4 md:grid-cols-3"><Panel title="Peer item lending"><div className="flex gap-2"><input className="min-w-0 flex-1 rounded border p-2" value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="Need: blanket, water..."/><button className="rounded bg-orange-600 px-3 text-white" onClick={() => void requestItem()}>Request</button></div>{items.slice(0, 5).map((i, idx) => <div className="border-b py-2" key={i.id ?? idx}><p>{i.item_name} · {i.status ?? 'open'} {i.pending && '· pending'}</p>{i.status === 'open' && i.requester_id !== currentMemberId && <button className="mt-1 rounded bg-green-600 px-2 py-1 text-sm text-white" onClick={() => void acceptItem(i)}>Accept</button>}{i.status === 'accepted' && (i.requester_id === currentMemberId || i.accepted_by === currentMemberId) && <p className="mt-1 rounded bg-slate-100 p-2 text-xs">Requester: {i.lat?.toFixed(5) ?? 'n/a'}, {i.lng?.toFixed(5) ?? 'n/a'}<br/>Accepter: {i.accepter_lat?.toFixed(5) ?? 'n/a'}, {i.accepter_lng?.toFixed(5) ?? 'n/a'}</p>}</div>)}</Panel><Panel title="Lost & found"><div className="mb-3 space-y-2"><input className="w-full rounded border p-2" placeholder="Name" value={registration.name} onChange={(e) => setRegistration({ ...registration, name: e.target.value })}/><input className="w-full rounded border p-2" placeholder="Phone" value={registration.phone} onChange={(e) => setRegistration({ ...registration, phone: e.target.value })}/><input className="w-full rounded border p-2" placeholder="Emergency contact" value={registration.emergency} onChange={(e) => setRegistration({ ...registration, emergency: e.target.value })}/><input className="w-full rounded border p-2" value={registration.groupCode} onChange={(e) => setRegistration({ ...registration, groupCode: e.target.value })}/><input className="w-full rounded border p-2" type="file" accept="image/*" onChange={(e) => setRegistration({ ...registration, photo: e.target.files?.[0] })}/><button className="rounded bg-orange-600 px-3 py-2 text-white" onClick={() => void registerGroup()}>Register group</button>{registeredGroup && <p className="text-sm text-green-700">Share code: {registeredGroup}</p>}</div><input className="mb-2 w-full rounded border p-2" value={groupCode} onChange={(e) => setGroupCode(e.target.value)} /><button className="rounded bg-amber-600 px-3 py-2 text-white" onClick={() => void checkIn()}>Check in at selected node</button><input className="mt-3 w-full rounded border p-2" value={familyCode} onChange={(e) => setFamilyCode(e.target.value)} placeholder="Family view group code" />{familySightings.slice(0, 5).map((s, idx) => <p className="border-b py-2" key={s.id ?? idx}>{s.note ?? 'Sighting'} {s.pending && '· pending'}</p>)}</Panel><Panel title="Volunteer dashboard"><p className="text-sm">Auth-gated in production; demo shows live active alerts, sightings, and requests.</p>{sosAlerts.slice(0, 5).map((s, idx) => <p className="border-b py-2 text-red-700" key={s.id ?? idx}>Active SOS near {s.node_id} {s.pending && '· queued first'}</p>)}</Panel></section>
   </main>;
 }
-
-function Panel({ title, children }: React.PropsWithChildren<{ title: string }>) {
-  return <section className="rounded-3xl bg-white p-4 shadow"><h2 className="mb-3 text-xl font-bold">{title}</h2>{children}</section>;
-}
-
+function Panel({ title, children }: React.PropsWithChildren<{ title: string }>) { return <section className="rounded-3xl bg-white p-4 shadow"><h2 className="mb-3 text-xl font-bold">{title}</h2>{children}</section>; }
 createRoot(document.getElementById('root')!).render(<App />);

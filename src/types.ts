@@ -26,6 +26,9 @@ export interface ItemRequest {
   lng?: number;
   status?: 'open' | 'accepted' | 'completed' | 'cancelled';
   accepted_by?: string;
+  accepted_at?: string;
+  accepter_lat?: number;
+  accepter_lng?: number;
   created_at?: string;
   pending?: boolean;
 }
@@ -35,6 +38,7 @@ export interface Sighting {
   member_id?: string;
   node_id?: string;
   reported_by?: string;
+  group_code?: string;
   note?: string;
   created_at?: string;
   pending?: boolean;
@@ -58,6 +62,9 @@ export interface OutboxEntry {
   priority: QueuePriority;
   createdAt: number;
   localId?: IDBValidKey;
+  attempts?: number;
+  nextAttemptAt?: number;
+  lastError?: string;
 }
 
 export type StoredRecord = CrowdReport | ItemRequest | Sighting | SosAlert;

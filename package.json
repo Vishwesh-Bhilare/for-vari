@@ -7,20 +7,21 @@
   "dependencies": {
     "@supabase/supabase-js": "latest",
     "@vitejs/plugin-react": "latest",
+    "i": "^0.3.7",
     "idb": "latest",
     "leaflet": "latest",
-    "vite-plugin-pwa": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "vite-plugin-pwa": "latest",
     "workbox-precaching": "latest"
   },
   "devDependencies": {
-    "typescript": "latest",
-    "vite": "latest",
-    "tailwindcss": "latest",
     "@tailwindcss/vite": "latest",
+    "@types/leaflet": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "@types/leaflet": "latest"
+    "tailwindcss": "latest",
+    "typescript": "latest",
+    "vite": "latest"
   }
 }

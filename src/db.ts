@@ -2,6 +2,9 @@ import { openDB } from 'idb';
 import { isSupabaseConfigured, supabase } from './supabase';
 import type { OutboxEntry, QueuePriority, StoredRecord } from './types';
 
+const MAX_OUTBOX_ATTEMPTS = 5;
+const retryDelay = (attempts: number) => Math.min(60_000, 2 ** Math.max(0, attempts - 1) * 2_000);
+
 const dbPromise = openDB('vari-companion', 1, {
   upgrade(db) {
     db.createObjectStore('nodes', { keyPath: 'id' });
@@ -31,13 +34,13 @@ export async function queueWrite<T extends StoredRecord>(table: string, payload:
   const localRecord = { ...localPayload, id: localId } as T;
 
   if (!navigator.onLine || !isSupabaseConfigured) {
-    await db.add('outbox', { table, payload, priority, createdAt: Date.now(), localId });
+    await db.add('outbox', { table, payload, priority, createdAt: Date.now(), localId, attempts: 0, nextAttemptAt: Date.now() });
     return { queued: true, localRecord };
   }
 
   const { data, error } = await supabase.from(table).insert(payload).select().single();
   if (error) {
-    await db.add('outbox', { table, payload, priority, createdAt: Date.now(), localId });
+    await db.add('outbox', { table, payload, priority, createdAt: Date.now(), localId, attempts: 0, nextAttemptAt: Date.now() });
     return { queued: true, error, localRecord };
   }
 
@@ -52,13 +55,20 @@ export async function drainOutbox() {
   const entries = (await db.getAll('outbox')) as OutboxEntry[];
   entries.sort((a, b) => (a.priority === b.priority ? a.createdAt - b.createdAt : a.priority === 'sos' ? -1 : 1));
 
+  const now = Date.now();
   for (const entry of entries) {
+    if ((entry.attempts ?? 0) >= MAX_OUTBOX_ATTEMPTS || (entry.nextAttemptAt ?? 0) > now) continue;
     const { error } = await supabase.from(entry.table).insert(entry.payload).select().single();
     if (!error && entry.id) {
       const tx = db.transaction([entry.table, 'outbox'], 'readwrite');
       if (entry.localId !== undefined) await tx.objectStore(entry.table).delete(entry.localId);
       await tx.objectStore('outbox').delete(entry.id);
       await tx.done;
+      continue;
+    }
+    if (error && entry.id) {
+      const attempts = (entry.attempts ?? 0) + 1;
+      await db.put('outbox', { ...entry, attempts, nextAttemptAt: Date.now() + retryDelay(attempts), lastError: error.message });
     }
   }
 }

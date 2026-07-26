@@ -22,7 +22,7 @@ Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to enable live data. Withou
 
 ## Supabase setup
 
-Run `supabase/schema.sql` in SQL editor. Row Level Security is enabled on all tables with permissive hackathon policies (`using (true)`). Production should restrict writes to authenticated group members and protect personal contact fields; crowd map and item board reads can remain public where appropriate.
+Run `supabase/schema.sql` in SQL editor, then immediately run `supabase/seed.sql` so the six route node UUIDs and demo member referenced by local offline cache exist in Postgres before writes start. Row Level Security is enabled on all tables with permissive hackathon policies (`using (true)`). Production should restrict writes to authenticated group members and protect personal contact fields; crowd map and item board reads can remain public where appropriate.
 
 ## Feature order implemented
 
@@ -32,3 +32,8 @@ Run `supabase/schema.sql` in SQL editor. Row Level Security is enabled on all ta
 4. Fixed SOS button with priority outbox replay.
 5. Volunteer dashboard panel for active alerts, sightings, and requests.
 6. Service worker caches map tiles on first load for offline route rendering.
+
+
+## Map tile attribution and production tiles
+
+The app displays OpenStreetMap attribution in Leaflet. For production, avoid heavy direct use of `tile.openstreetmap.org`; use a tile provider such as MapTiler or Stadia, or host tiles yourself.

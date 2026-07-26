@@ -1,8 +1,7 @@
 /// <reference lib="webworker" />
 import { precacheAndRoute } from 'workbox-precaching';
 declare const self: ServiceWorkerGlobalScope & typeof globalThis;
-declare const __WB_MANIFEST: Array<{ url: string; revision: string | null }>;
-precacheAndRoute(__WB_MANIFEST);
+precacheAndRoute(self.__WB_MANIFEST);
 
 const TILE_CACHE = 'vari-map-tiles-v1';
 const STATIC_CACHE = 'vari-static-v1';
