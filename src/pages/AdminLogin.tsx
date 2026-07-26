@@ -52,10 +52,17 @@ export function AdminLogin({
 }) {
   const [form, setForm] = useState<LoginForm>({ email: '', password: '' });
   const [message, setMessage] = useState('');
+  const [isLoggedIn, setIsLoggedIn] = useState(() => role === 'admin');
   const [pending, setPending] = useState<VolunteerApplication[]>(seedPendingApplications);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (role === 'admin') {
+      setIsLoggedIn(true);
+    }
+  }, [role]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !isLoggedIn) return;
 
     async function loadPending() {
       try {
@@ -86,16 +93,37 @@ export function AdminLogin({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [role]);
+  }, [isLoggedIn]);
 
   async function login(event: React.FormEvent) {
     event.preventDefault();
-    if (!isSupabaseConfigured) {
-      setMessage('Supabase unconfigured. Switched to Demo Admin Mode.');
+    if (!form.email.trim()) {
+      setMessage('Please enter your admin email.');
       return;
     }
-    const { error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
-    setMessage(error?.message ?? 'Signed in as Admin.');
+
+    if (isSupabaseConfigured) {
+      const { error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
+      if (error) {
+        setMessage(error.message);
+        return;
+      }
+    }
+
+    setIsLoggedIn(true);
+    setMessage('Signed in successfully!');
+  }
+
+  function demoLogin() {
+    setIsLoggedIn(true);
+    setMessage('Logged in as Demo Admin');
+  }
+
+  function logout() {
+    setIsLoggedIn(false);
+    if (isSupabaseConfigured) {
+      void supabase.auth.signOut();
+    }
   }
 
   async function approve(application: VolunteerApplication) {
@@ -119,7 +147,66 @@ export function AdminLogin({
     setPending((rows) => rows.filter((row) => row.id !== application.id));
   }
 
-  // Admin Control Panel UI matching screenshot
+  // 1. ADMIN LOGIN PAGE (Rendered when not logged in)
+  if (!isLoggedIn) {
+    return (
+      <section className="mx-auto max-w-md my-8 rounded-3xl bg-white p-8 shadow-xl border border-stone-200 text-stone-900">
+        <div className="text-center mb-6">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-600 text-2xl font-bold text-white shadow-md mb-3">
+            ⚡
+          </div>
+          <h1 className="text-2xl font-extrabold tracking-tight">Admin Login</h1>
+          <p className="text-xs text-stone-500 mt-1">
+            Sign in with administrator credentials to access the Wari Control Panel.
+          </p>
+        </div>
+
+        <form className="space-y-4 text-sm" onSubmit={(event) => void login(event)}>
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Admin Email</label>
+            <input
+              className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none"
+              type="email"
+              required
+              placeholder="admin@vari.org"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Password</label>
+            <input
+              className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none"
+              type="password"
+              required
+              placeholder="••••••••"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+            />
+          </div>
+
+          <button className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow-md hover:bg-orange-700 active:scale-95 transition-all text-sm">
+            Sign In as Admin
+          </button>
+
+          {message && <p className="text-xs font-semibold text-red-600 text-center">{message}</p>}
+        </form>
+
+        <div className="mt-6 border-t border-stone-200 pt-4 text-center">
+          <p className="text-xs text-stone-500 mb-2">Want to test without Supabase login?</p>
+          <button
+            onClick={demoLogin}
+            className="w-full rounded-xl bg-stone-100 py-2.5 text-xs font-bold text-stone-700 hover:bg-stone-200 border border-stone-300 transition-colors"
+          >
+            ⚡ Demo Admin Login (Instant Access)
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  // 2. ADMIN DASHBOARD (Rendered upon successful login)
   return (
     <div className="mx-auto max-w-6xl space-y-6 text-stone-900">
       {/* Control Center Header Banner */}
@@ -137,9 +224,17 @@ export function AdminLogin({
             </p>
           </div>
 
-          <span className="rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-300 border border-amber-500/30">
-            🛠️ Demo Mode Active
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-300 border border-amber-500/30">
+              🛠️ Demo Mode Active
+            </span>
+            <button
+              onClick={logout}
+              className="rounded-full bg-stone-800 px-3 py-1 text-xs font-bold text-stone-300 hover:bg-stone-700 transition-colors"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </div>
 
@@ -239,33 +334,6 @@ export function AdminLogin({
           </div>
         )}
       </div>
-
-      {/* Optional Login Form if not logged in */}
-      {role !== 'admin' && (
-        <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm text-xs text-stone-600">
-          <p className="font-semibold text-stone-800 mb-2">Admin Credentials Sign In (Optional)</p>
-          <form className="flex flex-wrap gap-2" onSubmit={(event) => void login(event)}>
-            <input
-              className="rounded-lg border p-2 text-xs flex-1 min-w-[180px]"
-              type="email"
-              placeholder="Admin email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-            />
-            <input
-              className="rounded-lg border p-2 text-xs flex-1 min-w-[180px]"
-              type="password"
-              placeholder="Password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
-            <button className="rounded-lg bg-stone-800 px-4 py-2 text-white font-semibold">
-              Sign In
-            </button>
-          </form>
-          {message && <p className="mt-2 text-emerald-700">{message}</p>}
-        </div>
-      )}
     </div>
   );
 }
