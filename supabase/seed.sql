@@ -3,20 +3,6 @@ insert into groups (id, group_code)
 values ('77777777-7777-4777-8777-777777777777', 'WARI-7F2K')
 on conflict (group_code) do update set group_code = excluded.group_code;
 
-insert into members (id, group_id, name, phone, emergency_contact)
-values (
-  '00000000-0000-4000-8000-000000000001',
-  '77777777-7777-4777-8777-777777777777',
-  'Demo Warkari',
-  '+91-00000-00000',
-  '+91-11111-11111'
-)
-on conflict (id) do update set
-  group_id = excluded.group_id,
-  name = excluded.name,
-  phone = excluded.phone,
-  emergency_contact = excluded.emergency_contact;
-
 insert into nodes (id, name, lat, lng, sequence_order)
 values
   ('11111111-1111-4111-8111-111111111111', 'Dehu', 18.7187, 73.7661, 1),

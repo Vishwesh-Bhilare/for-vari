@@ -22,7 +22,15 @@ Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to enable live data. Withou
 
 ## Supabase setup
 
-Run `supabase/schema.sql` in SQL editor, then immediately run `supabase/seed.sql` so the six route node UUIDs and demo member referenced by local offline cache exist in Postgres before writes start. Row Level Security is enabled on all tables with permissive hackathon policies (`using (true)`). Production should restrict writes to authenticated group members and protect personal contact fields; crowd map and item board reads can remain public where appropriate.
+1. In the Supabase dashboard, open Authentication → Providers and enable **Anonymous Sign-ins**. The app signs pilgrims in anonymously on load so every crowd report, item request, sighting, and SOS alert has an RLS-aware `auth.uid()` without forcing signup.
+2. Run `supabase/schema.sql` in the SQL editor, then run `supabase/seed.sql` so the six route node UUIDs and default group code exist in Postgres before writes start.
+3. To bootstrap the first admin, sign up or upgrade one account through the app, copy that user's `auth.users.id`, then run this one-time SQL statement:
+
+```sql
+update profiles set role = 'admin', approved = true where id = '<that users auth.users id>';
+```
+
+The schema stores individual identity in `profiles`, auto-creates a profile for every anonymous or permanent auth user, and points crowd reports, item requests, sightings, and SOS alerts at `profiles(id)`. Row Level Security now keeps public map/feed reads open, requires `auth.uid()` for pilgrim writes, and gates volunteer/admin actions by `profiles.role` and `profiles.approved`. There is intentionally no self-serve first-admin path.
 
 ## Feature order implemented
 
@@ -30,8 +38,9 @@ Run `supabase/schema.sql` in SQL editor, then immediately run `supabase/seed.sql
 2. Peer-to-peer item request feed with GPS attachment.
 3. Lost-and-found group code check-in timeline.
 4. Fixed SOS button with priority outbox replay.
-5. Volunteer dashboard panel for active alerts, sightings, and requests.
-6. Service worker caches map tiles on first load for offline route rendering.
+5. Auth-gated volunteer dashboard with SOS resolution, sighting verification, and node filtering.
+6. Admin approval panel for pending volunteer applications.
+7. Service worker caches map tiles on first load for offline route rendering.
 
 
 ## Map tile attribution and production tiles
