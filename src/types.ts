@@ -1,5 +1,19 @@
 export type Density = 'unknown' | 'low' | 'medium' | 'high';
 export type QueuePriority = 'sos' | 'normal';
+export type UserRole = 'pilgrim' | 'volunteer' | 'admin';
+
+export interface Profile {
+  id: string;
+  role: UserRole;
+  display_name?: string;
+  phone?: string;
+  emergency_contact?: string;
+  node_id?: string;
+  requested_role?: 'volunteer';
+  approved?: boolean;
+  group_id?: string;
+  created_at?: string;
+}
 
 export interface NodePoint {
   id: string;
@@ -40,6 +54,9 @@ export interface Sighting {
   reported_by?: string;
   group_code?: string;
   note?: string;
+  verified?: boolean;
+  verified_by?: string;
+  verified_at?: string;
   created_at?: string;
   pending?: boolean;
 }
@@ -51,6 +68,8 @@ export interface SosAlert {
   lat?: number;
   lng?: number;
   status?: 'active' | 'resolved';
+  resolved_by?: string;
+  resolved_at?: string;
   created_at?: string;
   pending?: boolean;
 }

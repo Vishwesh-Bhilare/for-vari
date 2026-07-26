@@ -6,16 +6,6 @@ create table if not exists groups (
   created_at timestamptz default now()
 );
 
-create table if not exists members (
-  id uuid primary key default gen_random_uuid(),
-  group_id uuid references groups(id),
-  name text not null,
-  phone text,
-  photo_url text,
-  emergency_contact text,
-  created_at timestamptz default now()
-);
-
 create table if not exists nodes (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -24,22 +14,49 @@ create table if not exists nodes (
   sequence_order int
 );
 
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  role text not null default 'pilgrim' check (role in ('pilgrim','volunteer','admin')),
+  display_name text,
+  phone text,
+  emergency_contact text,
+  node_id uuid references nodes(id),
+  requested_role text check (requested_role in ('volunteer')),
+  approved boolean default false,
+  group_id uuid references groups(id),
+  created_at timestamptz default now()
+);
+
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id) values (new.id)
+  on conflict (id) do nothing;
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
 create table if not exists crowd_reports (
   id uuid primary key default gen_random_uuid(),
   node_id uuid references nodes(id),
   density text check (density in ('low','medium','high')),
-  reported_by uuid references members(id),
+  reported_by uuid references profiles(id),
   created_at timestamptz default now()
 );
 
 create table if not exists item_requests (
   id uuid primary key default gen_random_uuid(),
-  requester_id uuid references members(id),
+  requester_id uuid references profiles(id),
   item_name text not null,
   lat float8,
   lng float8,
   status text default 'open' check (status in ('open','accepted','completed','cancelled')),
-  accepted_by uuid references members(id),
+  accepted_by uuid references profiles(id),
   accepted_at timestamptz,
   accepter_lat float8,
   accepter_lng float8,
@@ -48,21 +65,26 @@ create table if not exists item_requests (
 
 create table if not exists sightings (
   id uuid primary key default gen_random_uuid(),
-  member_id uuid references members(id),
+  member_id uuid references profiles(id),
   node_id uuid references nodes(id),
-  reported_by uuid references members(id),
+  reported_by uuid references profiles(id),
   group_code text references groups(group_code),
   note text,
+  verified boolean not null default false,
+  verified_by uuid references profiles(id),
+  verified_at timestamptz,
   created_at timestamptz default now()
 );
 
 create table if not exists sos_alerts (
   id uuid primary key default gen_random_uuid(),
-  member_id uuid references members(id),
+  member_id uuid references profiles(id),
   node_id uuid references nodes(id),
   lat float8,
   lng float8,
   status text default 'active' check (status in ('active','resolved')),
+  resolved_by uuid references profiles(id),
+  resolved_at timestamptz,
   created_at timestamptz default now()
 );
 
@@ -74,8 +96,8 @@ create table if not exists presence_pings (
 );
 
 alter table groups enable row level security;
-alter table members enable row level security;
 alter table nodes enable row level security;
+alter table profiles enable row level security;
 alter table crowd_reports enable row level security;
 alter table item_requests enable row level security;
 alter table sightings enable row level security;
@@ -85,20 +107,52 @@ alter table presence_pings enable row level security;
 do $$
 declare t text;
 begin
-  foreach t in array array['groups','members','nodes','crowd_reports','item_requests','sightings','sos_alerts','presence_pings'] loop
+  foreach t in array array['groups','nodes','profiles','crowd_reports','item_requests','sightings','sos_alerts','presence_pings'] loop
     execute format('drop policy if exists hackathon_all on %I', t);
-    execute format('create policy hackathon_all on %I for all using (true) with check (true)', t);
   end loop;
 end $$;
 
--- Hackathon note: policies are intentionally permissive. Production should scope
--- writes to authenticated group members and limit reads for personal contact info,
--- while allowing public access only to appropriate crowd map and item board data.
+create or replace function public.is_approved_volunteer()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from profiles p where p.id = auth.uid() and p.role in ('volunteer','admin') and p.approved = true);
+$$;
+
+create or replace function public.is_admin()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from profiles p where p.id = auth.uid() and p.role = 'admin');
+$$;
+
+create policy "anyone can read groups" on groups for select using (true);
+create policy "authenticated users can create groups" on groups for insert with check (auth.uid() is not null);
+create policy "anyone can read nodes" on nodes for select using (true);
+create policy "admins manage nodes" on nodes for all using (public.is_admin()) with check (public.is_admin());
+
+create policy "users read own profile" on profiles for select using (auth.uid() = id or public.is_admin());
+create policy "users update own profile" on profiles for update using (auth.uid() = id) with check (auth.uid() = id and role = 'pilgrim' and approved = false);
+create policy "admins manage profiles" on profiles for update using (public.is_admin()) with check (public.is_admin());
+
+create policy "anyone can read crowd_reports" on crowd_reports for select using (true);
+create policy "authenticated users can insert crowd_reports" on crowd_reports for insert with check (auth.uid() is not null and reported_by = auth.uid());
+
+create policy "anyone can read item_requests" on item_requests for select using (true);
+create policy "authenticated users can insert item_requests" on item_requests for insert with check (auth.uid() is not null and requester_id = auth.uid());
+create policy "authenticated users can accept item_requests" on item_requests for update using (auth.uid() is not null) with check (auth.uid() is not null and (requester_id = auth.uid() or accepted_by = auth.uid()));
+
+create policy "anyone can read sightings" on sightings for select using (true);
+create policy "authenticated users can insert sightings" on sightings for insert with check (auth.uid() is not null and reported_by = auth.uid());
+create policy "volunteers verify sightings" on sightings for update using (public.is_approved_volunteer()) with check (public.is_approved_volunteer());
+
+create policy "anyone can read sos_alerts" on sos_alerts for select using (true);
+create policy "authenticated users can insert sos_alerts" on sos_alerts for insert with check (auth.uid() is not null and member_id = auth.uid());
+create policy "volunteers can resolve sos" on sos_alerts for update using (public.is_approved_volunteer()) with check (public.is_approved_volunteer());
+
+create policy "anyone can read presence_pings" on presence_pings for select using (true);
+create policy "authenticated users can insert presence_pings" on presence_pings for insert with check (auth.uid() is not null);
 
 -- Supabase Realtime only emits postgres_changes for tables in this publication.
 do $$
 begin
-  alter publication supabase_realtime add table crowd_reports, item_requests, sightings, sos_alerts;
+  alter publication supabase_realtime add table crowd_reports, item_requests, sightings, sos_alerts, profiles;
 exception
   when duplicate_object then null;
 end $$;
