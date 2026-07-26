@@ -9,9 +9,26 @@ export interface Profile {
   phone?: string;
   emergency_contact?: string;
   node_id?: string;
-  requested_role?: 'volunteer';
   approved?: boolean;
   group_id?: string;
+  created_at?: string;
+}
+
+
+export type VolunteerApplicationStatus = 'pending' | 'approved' | 'rejected';
+
+export interface VolunteerApplication {
+  id: string;
+  user_id: string;
+  full_name: string;
+  phone: string;
+  age: number;
+  city: string;
+  experience: string;
+  why_volunteer: string;
+  status: VolunteerApplicationStatus;
+  reviewed_by?: string;
+  reviewed_at?: string;
   created_at?: string;
 }
 

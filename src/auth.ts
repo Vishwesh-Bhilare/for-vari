@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { isSupabaseConfigured, supabase } from './supabase';
-import type { Profile } from './types';
+import type { Profile, VolunteerApplication } from './types';
 
 export function useSession() {
   const [session, setSession] = useState<Session | null>(null);
@@ -76,3 +76,38 @@ export function useProfile(userId?: string) {
 }
 
 export const isPermanentSession = (session: Session | null) => Boolean(session?.user.email);
+
+
+export function useVolunteerApplication(userId?: string) {
+  const [application, setApplication] = useState<VolunteerApplication | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !userId) {
+      setApplication(null);
+      setLoading(false);
+      return;
+    }
+
+    let mounted = true;
+    async function loadApplication() {
+      setLoading(true);
+      const { data } = await supabase.from('volunteer_applications').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (mounted) {
+        setApplication(data as VolunteerApplication | null);
+        setLoading(false);
+      }
+    }
+
+    void loadApplication();
+    const channel = supabase.channel(`volunteer-application-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'volunteer_applications', filter: `user_id=eq.${userId}` }, () => void loadApplication())
+      .subscribe();
+    return () => {
+      mounted = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  return { application, loading };
+}
