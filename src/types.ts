@@ -18,14 +18,16 @@ export interface Profile {
 export type VolunteerApplicationStatus = 'pending' | 'approved' | 'rejected';
 
 export interface VolunteerApplication {
-  id: string;
+  id?: string;
   user_id: string;
   full_name: string;
   phone: string;
-  age: number;
-  city: string;
-  experience: string;
-  why_volunteer: string;
+  emergency_contact?: string;
+  preferred_station?: string;
+  age?: number;
+  city?: string;
+  experience?: string;
+  why_volunteer?: string;
   status: VolunteerApplicationStatus;
   reviewed_by?: string;
   reviewed_at?: string;
