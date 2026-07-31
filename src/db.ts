@@ -5,14 +5,15 @@ import type { OutboxEntry, QueuePriority, StoredRecord } from './types';
 const MAX_OUTBOX_ATTEMPTS = 5;
 const retryDelay = (attempts: number) => Math.min(60_000, 2 ** Math.max(0, attempts - 1) * 2_000);
 
-const dbPromise = openDB('vari-companion', 1, {
+const dbPromise = openDB('vari-companion', 2, {
   upgrade(db) {
-    db.createObjectStore('nodes', { keyPath: 'id' });
-    db.createObjectStore('crowd_reports', { keyPath: 'id', autoIncrement: true });
-    db.createObjectStore('item_requests', { keyPath: 'id', autoIncrement: true });
-    db.createObjectStore('sightings', { keyPath: 'id', autoIncrement: true });
-    db.createObjectStore('sos_alerts', { keyPath: 'id', autoIncrement: true });
-    db.createObjectStore('outbox', { keyPath: 'id', autoIncrement: true });
+    if (!db.objectStoreNames.contains('nodes')) db.createObjectStore('nodes', { keyPath: 'id' });
+    if (!db.objectStoreNames.contains('crowd_reports')) db.createObjectStore('crowd_reports', { keyPath: 'id', autoIncrement: true });
+    if (!db.objectStoreNames.contains('item_requests')) db.createObjectStore('item_requests', { keyPath: 'id', autoIncrement: true });
+    if (!db.objectStoreNames.contains('sightings')) db.createObjectStore('sightings', { keyPath: 'id', autoIncrement: true });
+    if (!db.objectStoreNames.contains('sos_alerts')) db.createObjectStore('sos_alerts', { keyPath: 'id', autoIncrement: true });
+    if (!db.objectStoreNames.contains('volunteer_applications')) db.createObjectStore('volunteer_applications', { keyPath: 'id' });
+    if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'id', autoIncrement: true });
   }
 });
 

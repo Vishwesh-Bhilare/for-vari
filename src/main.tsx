@@ -412,6 +412,7 @@ function App() {
         <div className="p-4 sm:p-6">
           <AdminLogin
             userId={currentMemberId}
+            userEmail={session?.user?.email}
             role={role}
             activeSosCount={activeSosCount}
             registeredProfileCount={registeredProfileCount}

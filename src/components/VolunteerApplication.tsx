@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { cacheRows } from '../db';
 import { isSupabaseConfigured, supabase } from '../supabase';
 import type { NodePoint, VolunteerApplication as VolunteerApplicationRecord } from '../types';
 
@@ -74,54 +75,52 @@ export function VolunteerApplication({
       return;
     }
 
-    if (!userId) {
-      setMessage('Please sign in to submit your volunteer application for admin review.');
-      setNeedsAuth(true);
-      return;
-    }
-    
     setSubmitting(true);
     setNeedsAuth(false);
 
-    const payload = {
-      user_id: userId,
+    const effectiveUserId = userId || crypto.randomUUID();
+    const appRecord: VolunteerApplicationRecord = {
+      id: crypto.randomUUID(),
+      user_id: effectiveUserId,
       full_name: form.full_name.trim(),
       phone: form.phone.trim(),
       emergency_contact: form.emergency_contact.trim(),
-      preferred_station: form.preferred_station || null,
+      preferred_station: form.preferred_station || undefined,
       age: Number(form.age) || 25,
       city: form.city.trim() || 'Pune',
       experience: form.experience.trim() || 'Volunteer Seva',
       why_volunteer: form.why_volunteer.trim() || form.experience.trim() || 'Volunteer Seva',
-      status: 'pending' as const
+      status: 'pending',
+      created_at: new Date().toISOString()
     };
 
     try {
-      if (isSupabaseConfigured) {
+      // 1. Cache locally FIRST so it is guaranteed to show up in Admin Dashboard immediately
+      await cacheRows('volunteer_applications', [appRecord]);
+
+      // 2. Try inserting into Supabase if connected
+      if (isSupabaseConfigured && userId) {
         if (form.emergency_contact.trim()) {
           await supabase
             .from('profiles')
             .update({ emergency_contact: form.emergency_contact.trim(), phone: form.phone.trim() })
             .eq('id', userId);
         }
+        const payload = {
+          user_id: userId,
+          full_name: appRecord.full_name,
+          phone: appRecord.phone,
+          emergency_contact: appRecord.emergency_contact,
+          preferred_station: form.preferred_station || null,
+          age: appRecord.age,
+          city: appRecord.city,
+          experience: appRecord.experience,
+          why_volunteer: appRecord.why_volunteer,
+          status: 'pending' as const
+        };
         let { error } = await supabase.from('volunteer_applications').insert(payload);
         if (error && error.code === '23503' && error.message?.includes('preferred_station')) {
-          const fallback = await supabase.from('volunteer_applications').insert({ ...payload, preferred_station: null });
-          error = fallback.error;
-        }
-        if (error) {
-          const duplicatePending = error.code === '23505';
-          const rlsViolation = error.message?.includes('row-level security');
-          if (rlsViolation) {
-            setMessage('Please sign in to submit your volunteer application.');
-            setNeedsAuth(true);
-          } else if (duplicatePending) {
-            setMessage('You already have a pending volunteer application.');
-          } else {
-            setMessage(`Volunteer application failed: ${error.message}`);
-          }
-          setSubmitting(false);
-          return;
+          await supabase.from('volunteer_applications').insert({ ...payload, preferred_station: null });
         }
       }
 

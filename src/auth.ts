@@ -19,6 +19,26 @@ function assertSupabaseConfigured() {
 
 export async function ensureProfile(userId: string, displayName?: string) {
   assertSupabaseConfigured();
+
+  const { data: existing } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (existing) {
+    if (displayName?.trim() && existing.display_name !== displayName.trim()) {
+      const { data: updated } = await supabase
+        .from('profiles')
+        .update({ display_name: displayName.trim() })
+        .eq('id', userId)
+        .select('*')
+        .maybeSingle();
+      if (updated) return updated as Profile;
+    }
+    return existing as Profile;
+  }
+
   const profile = {
     id: userId,
     role: 'pilgrim',
@@ -27,17 +47,17 @@ export async function ensureProfile(userId: string, displayName?: string) {
   };
   const { data, error } = await supabase
     .from('profiles')
-    .upsert(profile, { onConflict: 'id', ignoreDuplicates: false })
+    .insert(profile)
     .select('*')
     .maybeSingle();
   if (error) {
-    logAuthError('ensureProfile upsert failed (attempting select fallback)', error);
-    const { data: existing } = await supabase
+    logAuthError('ensureProfile insert failed (attempting select fallback)', error);
+    const { data: fallback } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .maybeSingle();
-    if (existing) return existing as Profile;
+    if (fallback) return fallback as Profile;
     return { id: userId, role: 'pilgrim', approved: false, display_name: displayName?.trim() } as Profile;
   }
   return data as Profile;
