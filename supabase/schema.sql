@@ -132,6 +132,20 @@ begin
   end loop;
 end $$;
 
+do $$
+declare
+  policy_record record;
+begin
+  for policy_record in
+    select schemaname, tablename, policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename in ('groups','nodes','profiles','volunteer_applications','crowd_reports','item_requests','sightings','sos_alerts','presence_pings')
+  loop
+    execute format('drop policy if exists %I on %I.%I', policy_record.policyname, policy_record.schemaname, policy_record.tablename);
+  end loop;
+end $$;
+
 create or replace function public.is_approved_volunteer()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (select 1 from profiles p where p.id = auth.uid() and p.role in ('volunteer','admin') and p.approved = true);
@@ -217,6 +231,7 @@ create or replace function public.approve_volunteer_application(application_id u
 returns void as $$
 declare
   target_user_id uuid;
+  target_node_id uuid;
 begin
   if not public.is_admin() then
     raise exception 'Only admins can approve volunteer applications';
@@ -225,14 +240,14 @@ begin
   update public.volunteer_applications
   set status = 'approved', reviewed_by = auth.uid(), reviewed_at = now()
   where id = application_id and status = 'pending'
-  returning user_id into target_user_id;
+  returning user_id, preferred_station into target_user_id, target_node_id;
 
   if target_user_id is null then
     raise exception 'Pending volunteer application not found';
   end if;
 
   update public.profiles
-  set role = 'volunteer', approved = true
+  set role = 'volunteer', approved = true, node_id = target_node_id
   where id = target_user_id;
 end;
 $$ language plpgsql security definer set search_path = public;

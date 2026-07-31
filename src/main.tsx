@@ -5,10 +5,11 @@ import { createRoot } from 'react-dom/client';
 import L from 'leaflet';
 import { cacheRows, drainOutbox, getRows, queueWrite } from './db';
 import { isSupabaseConfigured, supabase } from './supabase';
-import { useProfile, useSession, useVolunteerApplication } from './auth';
+import { signOut, useProfile, useSession, useVolunteerApplication } from './auth';
 import type { CrowdReport, Density, ItemRequest, NodePoint, Profile, Sighting, SosAlert, VolunteerApplication as VolunteerAppRecord } from './types';
 import { VolunteerApplication } from './components/VolunteerApplication';
 import { AdminLogin } from './pages/AdminLogin';
+import { AuthModal } from './components/AuthModal';
 
 const seedNodes: NodePoint[] = [
   { id: '11111111-1111-4111-8111-111111111111', name: 'Dehu', lat: 18.7187, lng: 73.7661, sequence_order: 1 },
@@ -70,6 +71,7 @@ function App() {
   
   const [view, setView] = useState<'pilgrim' | 'admin'>(() => location.pathname === '/admin' || location.hash === '#/admin' ? 'admin' : 'pilgrim');
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [nodes, setNodes] = useState<NodePoint[]>(seedNodes);
   const [reports, setReports] = useState<CrowdReport[]>([]);
   const [items, setItems] = useState<ItemRequest[]>([]);
@@ -300,8 +302,19 @@ function App() {
 
   const activeSosCount = sosAlerts.filter((s) => s.status === 'active').length;
 
+  async function handleSignOut() {
+    try {
+      await signOut();
+      setShowApplyModal(false);
+      setNotice({ type: 'success', text: 'Signed out successfully.' });
+    } catch (error) {
+      setNotice({ type: 'error', text: error instanceof Error ? error.message : 'Sign out failed.' });
+    }
+  }
+
   return (
     <main className="min-h-screen bg-orange-50 text-stone-900">
+      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
       <header className="bg-gradient-to-r from-orange-600 to-amber-500 p-5 text-white shadow">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -312,7 +325,7 @@ function App() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => setView('pilgrim')}
               className={`rounded-full px-4 py-1.5 text-xs font-bold transition-all ${
@@ -333,6 +346,23 @@ function App() {
             >
               Admin Dashboard
             </button>
+            {session ? (
+              <div className="flex items-center gap-2 rounded-full bg-orange-700/40 px-3 py-1.5 text-xs font-semibold text-white">
+                <span>{profile?.display_name ?? session.user.email ?? 'Signed in'}</span>
+                <span className="rounded-full bg-white/15 px-2 py-0.5 uppercase tracking-wide">{role}</span>
+                <button type="button" onClick={() => void handleSignOut()} className="font-bold underline decoration-white/60 underline-offset-2">
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowAuthModal(true)}
+                className="rounded-full bg-white px-4 py-1.5 text-xs font-bold text-orange-600 shadow transition-all hover:bg-orange-50"
+              >
+                Sign in / Register
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -349,6 +379,19 @@ function App() {
             <div className="flex min-h-[60vh] items-center justify-center">
               <div className="rounded-2xl bg-white p-8 shadow-xl text-center max-w-md">
                 <p className="text-xl font-semibold text-stone-800">Please sign in as an administrator.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowAuthModal(true)}
+                  className="mt-5 rounded-xl bg-orange-600 px-6 py-2.5 text-sm font-bold text-white shadow hover:bg-orange-700"
+                >
+                  Open admin sign in
+                </button>
+              </div>
+            </div>
+          ) : authLoading || profileLoading ? (
+            <div className="flex min-h-[60vh] items-center justify-center">
+              <div className="rounded-2xl bg-white p-8 shadow-xl text-center max-w-md">
+                <p className="text-xl font-semibold text-stone-800">Restoring administrator session…</p>
               </div>
             </div>
           ) : (
@@ -605,7 +648,7 @@ function App() {
                   </button>
                 ) : (
                   <button
-                    onClick={() => setNotice({ type: 'error', text: 'Please sign in to use this feature.' })}
+                    onClick={() => setShowAuthModal(true)}
                     className="w-full rounded-xl bg-orange-600 py-2.5 px-3 text-xs font-bold text-white shadow hover:bg-orange-700 transition-all flex items-center justify-center gap-1.5"
                   >
                     🔒 Sign in to apply as a volunteer
