@@ -64,9 +64,9 @@ function usePosition() {
 }
 
 function App() {
-  const { session, userId: currentMemberId, loading: authLoading } = useSession();
-  const { profile, role, approved, loading: profileLoading } = useProfile(currentMemberId);
-  const { application, loading: applicationLoading } = useVolunteerApplication(currentMemberId);
+  const { session, userId: currentMemberId, loading: authLoading, error: authError } = useSession();
+  const { profile, role, approved, loading: profileLoading, error: profileError } = useProfile(currentMemberId);
+  const { application, loading: applicationLoading, error: applicationError } = useVolunteerApplication(currentMemberId);
   
   const [view, setView] = useState<'pilgrim' | 'admin'>(() => location.pathname === '/admin' || location.hash === '#/admin' ? 'admin' : 'pilgrim');
   const [showApplyModal, setShowApplyModal] = useState(false);
@@ -337,9 +337,9 @@ function App() {
         </div>
       </header>
 
-      {notice && (
-        <div className={`mx-4 mt-4 rounded-xl border p-3 text-sm font-semibold ${notice.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
-          {notice.text}
+      {(notice || authError || profileError || applicationError) && (
+        <div className={`mx-4 mt-4 rounded-xl border p-3 text-sm font-semibold ${notice?.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+          {notice?.text ?? authError ?? profileError ?? applicationError}
         </div>
       )}
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '../supabase';
-import type { NodePoint, Profile, VolunteerApplication } from '../types';
+import type { NodePoint, VolunteerApplication } from '../types';
 
 type NodeForm = { id?: string; name: string; lat: string; lng: string; sequence_order: string };
 const emptyNodeForm: NodeForm = { name: '', lat: '', lng: '', sequence_order: '' };
@@ -64,9 +64,11 @@ export function AdminLogin({
 
   async function approve(application: VolunteerApplication) {
     if (isSupabaseConfigured && userId && isAdmin) {
-      const reviewed = { status: 'approved' as const, reviewed_by: userId, reviewed_at: new Date().toISOString() };
-      const { error } = await supabase.from('volunteer_applications').update(reviewed).eq('id', application.id);
-      if (!error) await supabase.from('profiles').update({ role: 'volunteer' satisfies Profile['role'], approved: true }).eq('id', application.user_id);
+      const { error } = await supabase.rpc('approve_volunteer_application', { application_id: application.id });
+      if (error) {
+        setMessage(`Volunteer approval failed: ${error.message}`);
+        return;
+      }
     }
     setPending((rows) => rows.filter((row) => row.id !== application.id));
     onApproveVolunteer?.(application);
@@ -75,7 +77,11 @@ export function AdminLogin({
   async function reject(application: VolunteerApplication) {
     if (isSupabaseConfigured && userId && isAdmin) {
       const reviewed = { status: 'rejected' as const, reviewed_by: userId, reviewed_at: new Date().toISOString() };
-      await supabase.from('volunteer_applications').update(reviewed).eq('id', application.id);
+      const { error } = await supabase.from('volunteer_applications').update(reviewed).eq('id', application.id);
+      if (error) {
+        setMessage(`Volunteer rejection failed: ${error.message}`);
+        return;
+      }
     }
     setPending((rows) => rows.filter((row) => row.id !== application.id));
   }

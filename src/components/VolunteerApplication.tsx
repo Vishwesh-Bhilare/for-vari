@@ -97,11 +97,20 @@ export function VolunteerApplication({
     try {
       if (isSupabaseConfigured) {
         if (form.emergency_contact.trim()) {
-          void supabase.from('profiles').update({ emergency_contact: form.emergency_contact.trim() }).eq('id', userId);
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update({ emergency_contact: form.emergency_contact.trim(), phone: form.phone.trim() })
+            .eq('id', userId);
+          if (profileError) {
+            setMessage(`Profile update failed: ${profileError.message}`);
+            setSubmitting(false);
+            return;
+          }
         }
         const { error } = await supabase.from('volunteer_applications').insert(payload);
         if (error) {
-          setMessage(error.message);
+          const duplicatePending = error.code === '23505';
+          setMessage(duplicatePending ? 'You already have a pending volunteer application.' : `Volunteer application failed: ${error.message}`);
           setSubmitting(false);
           return;
         }

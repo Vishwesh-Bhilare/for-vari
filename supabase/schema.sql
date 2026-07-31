@@ -180,3 +180,59 @@ begin
 exception
   when duplicate_object then null;
 end $$;
+
+-- Authentication hardening: allow client-side upsert/profile repair while protecting roles.
+create policy "users create own profile" on profiles
+  for insert with check (auth.uid() = id and role = 'pilgrim' and approved = false);
+
+create or replace function public.prevent_profile_privilege_escalation()
+returns trigger as $$
+begin
+  if auth.uid() = new.id and not public.is_admin() then
+    if new.role is distinct from old.role or new.approved is distinct from old.approved then
+      raise exception 'Users cannot change their own role or approval status';
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists prevent_profile_privilege_escalation on public.profiles;
+create trigger prevent_profile_privilege_escalation
+  before update on public.profiles
+  for each row execute function public.prevent_profile_privilege_escalation();
+
+-- Replace the older restrictive profile update policy with trigger-enforced field safety.
+drop policy if exists "users update own profile" on profiles;
+create policy "users update own profile" on profiles
+  for update using (auth.uid() = id) with check (auth.uid() = id);
+
+-- Keep one active pending volunteer application per user to prevent duplicate review races.
+create unique index if not exists volunteer_applications_one_pending_per_user
+  on public.volunteer_applications(user_id)
+  where status = 'pending';
+
+-- Atomic admin approval path. Frontend calls this RPC; RLS still enforces admin access.
+create or replace function public.approve_volunteer_application(application_id uuid)
+returns void as $$
+declare
+  target_user_id uuid;
+begin
+  if not public.is_admin() then
+    raise exception 'Only admins can approve volunteer applications';
+  end if;
+
+  update public.volunteer_applications
+  set status = 'approved', reviewed_by = auth.uid(), reviewed_at = now()
+  where id = application_id and status = 'pending'
+  returning user_id into target_user_id;
+
+  if target_user_id is null then
+    raise exception 'Pending volunteer application not found';
+  end if;
+
+  update public.profiles
+  set role = 'volunteer', approved = true
+  where id = target_user_id;
+end;
+$$ language plpgsql security definer set search_path = public;
