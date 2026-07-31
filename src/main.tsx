@@ -160,6 +160,10 @@ function App() {
   }, [familyCode]);
 
   async function reportDensity(density: Density) {
+    if (!session) {
+      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      return;
+    }
     if (density === 'unknown' || !currentMemberId || !selectedNode) {
       setNotice({ type: 'error', text: 'Choose a route node before reporting crowd density.' });
       return;
@@ -169,6 +173,10 @@ function App() {
     setNotice({ type: 'success', text: 'Crowd density report saved.' });
   }
   async function requestItem() {
+    if (!session) {
+      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      return;
+    }
     if (!itemName.trim() || !currentMemberId || myActiveRequest) return;
     const result = await queueWrite<ItemRequest>('item_requests', { requester_id: currentMemberId, item_name: itemName, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'open' });
     setItemName(''); setItems((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
@@ -179,19 +187,39 @@ function App() {
     if (!error) setItems((r) => r.map((i) => i.id === item.id ? (data as ItemRequest) : i));
   }
   async function acceptItem(item: ItemRequest) {
+    if (!session) {
+      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      return;
+    }
     if (item.requester_id === currentMemberId) return;
     await updateItemRequest(item, { status: 'accepted', accepted_by: currentMemberId, accepted_at: new Date().toISOString(), accepter_lat: position?.coords.latitude, accepter_lng: position?.coords.longitude });
   }
   async function completeItem(item: ItemRequest) {
+    if (!session) {
+      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      return;
+    }
     await updateItemRequest(item, { status: 'completed' });
   }
   async function cancelItem(item: ItemRequest) {
+    if (!session) {
+      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      return;
+    }
     await updateItemRequest(item, { status: 'cancelled' });
   }
   async function unacceptItem(item: ItemRequest) {
+    if (!session) {
+      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      return;
+    }
     await updateItemRequest(item, { status: 'open', accepted_by: null, accepted_at: null, accepter_lat: null, accepter_lng: null });
   }
   async function registerGroup() {
+    if (!session) {
+      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      return;
+    }
     if (!registration.name.trim() || !currentMemberId || !isSupabaseConfigured) {
       setNotice({ type: 'error', text: 'Please sign in and enter a name before registering a group.' });
       return;
@@ -239,6 +267,10 @@ function App() {
     setNotice({ type: 'success', text: existing.data?.id ? 'Joined existing group.' : 'Created new group.' });
   }
   async function checkIn() {
+    if (!session) {
+      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      return;
+    }
     if (!currentMemberId || !checkInNode || !groupCode.trim()) {
       setNotice({ type: 'error', text: 'Choose a check-in node and enter your family group code.' });
       return;
@@ -252,6 +284,10 @@ function App() {
     }
   }
   async function sendSos() {
+    if (!session) {
+      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      return;
+    }
     if (!currentMemberId || !checkInNode) return;
     try {
       const result = await queueWrite<SosAlert>('sos_alerts', { member_id: currentMemberId, node_id: checkInNode, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'active' }, 'sos');
@@ -309,20 +345,28 @@ function App() {
 
       {view === 'admin' ? (
         <div className="p-4 sm:p-6">
-          <AdminLogin
-            userId={currentMemberId}
-            role={role}
-            activeSosCount={activeSosCount}
-            registeredProfileCount={registeredProfileCount}
-            routeStationCount={nodes.length}
-            nodes={nodes}
-            onNodesChange={setNodes}
-          />
+          {!session ? (
+            <div className="flex min-h-[60vh] items-center justify-center">
+              <div className="rounded-2xl bg-white p-8 shadow-xl text-center max-w-md">
+                <p className="text-xl font-semibold text-stone-800">Please sign in as an administrator.</p>
+              </div>
+            </div>
+          ) : (
+            <AdminLogin
+              userId={currentMemberId}
+              role={role}
+              activeSosCount={activeSosCount}
+              registeredProfileCount={registeredProfileCount}
+              routeStationCount={nodes.length}
+              nodes={nodes}
+              onNodesChange={setNodes}
+            />
+          )}
         </div>
       ) : (
         <div className="space-y-4">
           {/* Volunteer Application Modal */}
-          {showApplyModal && (
+          {showApplyModal && session && (
             <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-stone-900/60 backdrop-blur-sm p-4">
               <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4">
                 <div className="flex items-center justify-between border-b pb-3">
@@ -552,25 +596,40 @@ function App() {
                 </p>
 
                 {/* Apply for Volunteer Button */}
-                <button
-                  onClick={() => setShowApplyModal(true)}
-                  className="w-full rounded-xl bg-orange-600 py-2.5 px-3 text-xs font-bold text-white shadow hover:bg-orange-700 transition-all flex items-center justify-center gap-1.5"
-                >
-                  ⚡ Apply for Volunteer in Vari
-                </button>
+                {session ? (
+                  <button
+                    onClick={() => setShowApplyModal(true)}
+                    className="w-full rounded-xl bg-orange-600 py-2.5 px-3 text-xs font-bold text-white shadow hover:bg-orange-700 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    ⚡ Apply for Volunteer in Vari
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setNotice({ type: 'error', text: 'Please sign in to use this feature.' })}
+                    className="w-full rounded-xl bg-orange-600 py-2.5 px-3 text-xs font-bold text-white shadow hover:bg-orange-700 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    🔒 Sign in to apply as a volunteer
+                  </button>
+                )}
 
-                <VolunteerDashboard
-                  session={session}
-                  profile={profile}
-                  role={role}
-                  approved={approved}
-                  loading={authLoading || profileLoading}
-                  nodes={nodes}
-                  sosAlerts={sosAlerts}
-                  sightings={sightings}
-                  setSosAlerts={setSosAlerts}
-                  setSightings={setSightings}
-                />
+                {session ? (
+                  <VolunteerDashboard
+                    session={session}
+                    profile={profile}
+                    role={role}
+                    approved={approved}
+                    loading={authLoading || profileLoading}
+                    nodes={nodes}
+                    sosAlerts={sosAlerts}
+                    sightings={sightings}
+                    setSosAlerts={setSosAlerts}
+                    setSightings={setSightings}
+                  />
+                ) : (
+                  <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-4 text-center">
+                    <p className="font-medium text-amber-800">Sign in to access volunteer features.</p>
+                  </div>
+                )}
               </div>
             </Panel>
           </section>

@@ -14,20 +14,15 @@ export function useSession() {
     }
 
     let mounted = true;
-    async function ensureSession() {
+    async function getSession() {
       const { data } = await supabase.auth.getSession();
-      let activeSession = data.session;
-      if (!activeSession) {
-        const { data: anonData } = await supabase.auth.signInAnonymously();
-        activeSession = anonData.session;
-      }
       if (mounted) {
-        setSession(activeSession);
+        setSession(data.session);
         setLoading(false);
       }
     }
 
-    void ensureSession();
+    void getSession();
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       setLoading(false);
@@ -75,8 +70,50 @@ export function useProfile(userId?: string) {
   return { profile, role: profile?.role ?? 'pilgrim', approved: Boolean(profile?.approved), loading };
 }
 
-export const isPermanentSession = (session: Session | null) => Boolean(session?.user.email);
+export async function signIn(email: string, password: string) {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+  if (error) throw error;
+  return data;
+}
 
+export async function signUp(email: string, password: string, displayName?: string) {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+  });
+  if (error) throw error;
+  
+  if (data.user) {
+    // Check if profile already exists
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', data.user.id)
+      .maybeSingle();
+    
+    if (!existingProfile) {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: data.user.id,
+          display_name: displayName ?? null,
+        });
+      if (profileError) throw profileError;
+    }
+  }
+  
+  return data;
+}
+
+export async function signOut() {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}
+
+export const isPermanentSession = (session: Session | null) => Boolean(session?.user.email);
 
 export function useVolunteerApplication(userId?: string) {
   const [application, setApplication] = useState<VolunteerApplication | null>(null);
@@ -90,9 +127,18 @@ export function useVolunteerApplication(userId?: string) {
     }
 
     let mounted = true;
+
     async function loadApplication() {
       setLoading(true);
-      const { data } = await supabase.from('volunteer_applications').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+      const { data } = await supabase
+        .from('volunteer_applications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
       if (mounted) {
         setApplication(data as VolunteerApplication | null);
         setLoading(false);
@@ -100,9 +146,21 @@ export function useVolunteerApplication(userId?: string) {
     }
 
     void loadApplication();
-    const channel = supabase.channel(`volunteer-application-${userId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'volunteer_applications', filter: `user_id=eq.${userId}` }, () => void loadApplication())
+
+    const channel = supabase
+      .channel(`volunteer-application-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'volunteer_applications',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => void loadApplication()
+      )
       .subscribe();
+
     return () => {
       mounted = false;
       void supabase.removeChannel(channel);

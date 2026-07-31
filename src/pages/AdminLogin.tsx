@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '../supabase';
 import type { NodePoint, Profile, VolunteerApplication } from '../types';
 
-type LoginForm = { email: string; password: string };
 type NodeForm = { id?: string; name: string; lat: string; lng: string; sequence_order: string };
 const emptyNodeForm: NodeForm = { name: '', lat: '', lng: '', sequence_order: '' };
 
@@ -25,16 +24,10 @@ export function AdminLogin({
   onNodesChange?: (nodes: NodePoint[]) => void;
   onApproveVolunteer?: (application: VolunteerApplication) => void;
 }) {
-  const [form, setForm] = useState<LoginForm>({ email: '', password: '' });
   const [message, setMessage] = useState('');
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [pending, setPending] = useState<VolunteerApplication[]>([]);
   const [nodeForm, setNodeForm] = useState<NodeForm>(emptyNodeForm);
-  const isAdmin = isLoggedIn && role === 'admin';
-
-  useEffect(() => {
-    if (role !== 'admin') setIsLoggedIn(false);
-  }, [role]);
+  const isAdmin = role === 'admin';
 
   useEffect(() => {
     if (!isSupabaseConfigured || !isAdmin) return;
@@ -68,32 +61,6 @@ export function AdminLogin({
       void supabase.removeChannel(channel);
     };
   }, [isAdmin]);
-
-  async function login(event: React.FormEvent) {
-    event.preventDefault();
-    if (!form.email.trim()) {
-      setMessage('Please enter your admin email.');
-      return;
-    }
-    if (!isSupabaseConfigured) {
-      setMessage('Admin login requires Supabase authentication to be configured.');
-      return;
-    }
-
-    const { error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-
-    setIsLoggedIn(true);
-    setMessage('Signed in successfully. Verifying admin role...');
-  }
-
-  function logout() {
-    setIsLoggedIn(false);
-    if (isSupabaseConfigured) void supabase.auth.signOut();
-  }
 
   async function approve(application: VolunteerApplication) {
     if (isSupabaseConfigured && userId && isAdmin) {
@@ -158,20 +125,11 @@ export function AdminLogin({
     return (
       <section className="mx-auto max-w-md my-8 rounded-3xl bg-white p-8 shadow-xl border border-stone-200 text-stone-900">
         <div className="text-center mb-6">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-600 text-2xl font-bold text-white shadow-md mb-3">⚡</div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Admin Login</h1>
-          <p className="text-xs text-stone-500 mt-1">Sign in with administrator credentials to access the Wari Control Panel.</p>
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500 text-2xl font-bold text-white shadow-md mb-3">🔒</div>
+          <h1 className="text-2xl font-extrabold tracking-tight">Administrator Access Required</h1>
+          <p className="text-sm text-stone-600 mt-2">You are signed in but do not have administrator privileges.</p>
+          <p className="text-xs text-stone-500 mt-1">Only accounts with role = 'admin' may access this dashboard.</p>
         </div>
-        <form className="space-y-4 text-sm" onSubmit={(event) => void login(event)}>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">Admin Email
-            <input className="mt-1 w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none" type="email" required placeholder="admin@vari.org" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          </label>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">Password
-            <input className="mt-1 w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none" type="password" required placeholder="••••••••" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-          </label>
-          <button className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow-md hover:bg-orange-700 active:scale-95 transition-all text-sm">Sign In as Admin</button>
-          {message && <p className="text-xs font-semibold text-red-600 text-center">{message}</p>}
-        </form>
       </section>
     );
   }
@@ -181,7 +139,6 @@ export function AdminLogin({
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 p-6 sm:p-8 text-white shadow-xl border border-amber-900/40">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div><span className="text-[11px] font-extrabold uppercase tracking-widest text-amber-400">CONTROL CENTER</span><h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2">⚡ Admin Control Panel</h1><p className="mt-1.5 text-xs sm:text-sm text-stone-300">Manage volunteer approvals, route nodes, user permissions, and system metrics.</p></div>
-          <button onClick={logout} className="rounded-full bg-stone-800 px-3 py-1 text-xs font-bold text-stone-300 hover:bg-stone-700 transition-colors">Sign Out</button>
         </div>
       </div>
       {message && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800 border border-amber-200">{message}</p>}
