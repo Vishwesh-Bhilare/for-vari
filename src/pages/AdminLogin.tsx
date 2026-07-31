@@ -1,4 +1,29 @@
 import { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Shield, 
+  Mail, 
+  Lock, 
+  Users, 
+  AlertTriangle, 
+  MapPin, 
+  UserCheck,
+  CheckCircle,
+  XCircle,
+  Plus,
+  Edit,
+  Trash2,
+  RefreshCw,
+  Sparkles,
+  Crown,
+  Clock,
+  Phone,
+  AlertCircle,
+  Navigation,
+  Briefcase,
+  Calendar,
+  Building
+} from 'lucide-react';
 import { getSupabaseConfigError, isSupabaseConfigured, supabase } from '../supabase';
 import { signIn } from '../auth';
 import type { NodePoint, VolunteerApplication } from '../types';
@@ -151,42 +176,64 @@ export function AdminLogin({
     setMessage('Route node removed.');
   }
 
-  // Render Admin Login Card when user is not logged in as admin
+  // ============================================
+  // ADMIN LOGIN CARD (Not logged in)
+  // ============================================
   if (!isAdmin) {
     return (
       <div className="flex min-h-[70vh] items-center justify-center p-4">
-        <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl border border-stone-200">
-          {/* Dark Header Card matching screenshot */}
-          <div className="bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900 p-8 text-center text-white">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center text-3xl mb-2">
-              ⚡
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="w-full max-w-md overflow-hidden rounded-organic-lg bg-cream shadow-warm-xl border border-gold-light/30"
+        >
+          {/* Header */}
+          <div className="relative bg-gradient-to-br from-maroon via-maroon-dark to-text p-8 text-center text-white overflow-hidden">
+            <div className="absolute inset-0 bg-grain opacity-10" />
+            <div className="relative">
+              <div className="mx-auto w-16 h-16 rounded-organic-sm bg-gold/20 backdrop-blur-sm flex items-center justify-center border border-gold/30 mb-4">
+                <Crown className="w-8 h-8 text-gold" />
+              </div>
+              <h1 className="font-serif text-2xl font-bold tracking-tight">Admin Dashboard</h1>
+              <p className="mt-2 text-sm text-gold-light/70 max-w-xs mx-auto leading-relaxed">
+                Secure access for Wari administrators to manage volunteers, nodes, and system metrics.
+              </p>
             </div>
-            <h1 className="text-xl font-black tracking-tight">Admin Dashboard Login</h1>
-            <p className="mt-2 text-xs text-stone-400 max-w-xs mx-auto leading-relaxed">
-              Log in with an administrator account to verify volunteer applications, grant roles, and monitor metrics.
-            </p>
           </div>
 
+          {/* Form */}
           <div className="p-6 space-y-5">
-            {/* Warning banner if Supabase URL or anon key is missing/unconfigured */}
             {(!isSupabaseConfigured || configError) && (
-              <div className="rounded-2xl bg-red-50 p-4 border border-red-200 text-red-700 text-xs font-medium space-y-1">
-                <p className="font-bold flex items-center gap-1.5">
-                  <span>⚠️</span> Supabase backend URL / Key is missing or unconfigured in .env.
+              <div className="rounded-organic-sm bg-maroon-light/10 border border-maroon/20 p-4">
+                <p className="text-sm font-medium text-maroon-dark flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  Supabase configuration missing. Please check .env file.
                 </p>
               </div>
             )}
 
-            {loginError && (
-              <div className="rounded-2xl bg-red-50 p-3 text-xs font-semibold text-red-700 border border-red-200">
-                {loginError}
-              </div>
-            )}
+            <AnimatePresence>
+              {loginError && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="rounded-organic-sm bg-maroon-light/10 border border-maroon/20 p-3"
+                >
+                  <p className="text-sm font-medium text-maroon-dark flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    {loginError}
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <form onSubmit={(e) => void handleAdminLogin(e)} className="space-y-4">
               <div>
-                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-stone-500 mb-1.5">
-                  ADMIN EMAIL
+                <label className="flex items-center gap-2 text-sm font-semibold text-text-light mb-1.5">
+                  <Mail className="w-4 h-4 text-saffron" />
+                  Admin Email
                 </label>
                 <input
                   type="email"
@@ -194,13 +241,15 @@ export function AdminLogin({
                   value={adminEmail}
                   onChange={(e) => setAdminEmail(e.target.value)}
                   placeholder="admin@example.com"
-                  className="w-full rounded-xl border border-stone-300 px-3.5 py-2.5 text-sm text-stone-900 focus:border-stone-900 focus:outline-none transition-colors"
+                  className="w-full rounded-organic-sm border border-gold-light/30 bg-cream-darker px-4 py-2.5 text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow"
+                  disabled={loggingIn}
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-stone-500 mb-1.5">
-                  ADMIN PASSWORD
+                <label className="flex items-center gap-2 text-sm font-semibold text-text-light mb-1.5">
+                  <Lock className="w-4 h-4 text-saffron" />
+                  Password
                 </label>
                 <input
                   type="password"
@@ -208,149 +257,312 @@ export function AdminLogin({
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full rounded-xl border border-stone-300 px-3.5 py-2.5 text-sm text-stone-900 focus:border-stone-900 focus:outline-none transition-colors"
+                  className="w-full rounded-organic-sm border border-gold-light/30 bg-cream-darker px-4 py-2.5 text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow"
+                  disabled={loggingIn}
                 />
               </div>
 
-              <button
+              <motion.button
                 type="submit"
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.98 }}
                 disabled={loggingIn}
-                className="w-full rounded-xl bg-stone-950 py-3.5 text-sm font-bold text-white shadow-md hover:bg-stone-800 active:scale-[0.99] transition-all disabled:opacity-50"
+                className="w-full py-3.5 rounded-organic-sm text-sm font-semibold bg-gradient-to-r from-maroon to-maroon-dark text-white shadow-warm hover:shadow-warm-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                {loggingIn ? 'Authenticating...' : 'Log In as Admin'}
-              </button>
+                {loggingIn ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Authenticating...
+                  </>
+                ) : (
+                  <>
+                    <Shield className="w-4 h-4" />
+                    Log In as Admin
+                  </>
+                )}
+              </motion.button>
             </form>
+
+            <div className="flex items-center justify-center gap-1.5 text-xs text-text-light/50 pt-2">
+              <Sparkles className="w-3 h-3" />
+              <span>Authorized personnel only</span>
+              <Sparkles className="w-3 h-3" />
+            </div>
           </div>
-        </div>
+        </motion.div>
       </div>
     );
   }
 
-  // Dashboard view for authenticated admin
+  // ============================================
+  // ADMIN DASHBOARD (Authenticated)
+  // ============================================
   return (
-    <div className="mx-auto max-w-6xl space-y-6 text-stone-900">
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 p-6 sm:p-8 text-white shadow-xl border border-amber-900/40">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="space-y-6">
+      {/* Header Banner */}
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative overflow-hidden rounded-organic-lg bg-gradient-to-br from-maroon via-maroon-dark to-text p-6 sm:p-8 shadow-warm-lg border border-gold/20"
+      >
+        <div className="absolute inset-0 bg-grain opacity-5" />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div>
-            <span className="text-[11px] font-extrabold uppercase tracking-widest text-amber-400">CONTROL CENTER</span>
-            <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2">
-              ⚡ Admin Control Panel
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-gold-light/70">
+              <Shield className="w-3 h-3" />
+              Control Center
+            </span>
+            <h1 className="mt-1 font-serif text-2xl sm:text-3xl font-bold text-white flex items-center gap-2">
+              Admin Panel
+              <span className="text-xs font-sans font-medium bg-gold/20 px-3 py-1 rounded-pill text-gold-light border border-gold/30">
+                {role}
+              </span>
             </h1>
-            <p className="mt-1.5 text-xs sm:text-sm text-stone-300">
-              Manage volunteer approvals, route nodes, user permissions, and system metrics.
+            <p className="mt-1.5 text-sm text-gold-light/60 max-w-2xl">
+              Manage volunteer approvals, route nodes, and monitor system metrics for Wari 2026.
             </p>
           </div>
+          <div className="flex items-center gap-2 text-xs text-gold-light/50">
+            <Clock className="w-4 h-4" />
+            <span>Live Dashboard</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-tulsi animate-pulse ml-1" />
+          </div>
         </div>
-      </div>
+      </motion.div>
 
-      {message && (
-        <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800 border border-amber-200">
-          {message}
-        </p>
-      )}
+      {/* Message */}
+      <AnimatePresence>
+        {message && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="rounded-organic-sm bg-turmeric-light/20 border border-turmeric/30 p-4"
+          >
+            <p className="text-sm font-medium text-text-light flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-turmeric" />
+              {message}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat label="PENDING VOLUNTEERS" value={pending.length} color="text-orange-500" />
-        <Stat label="ACTIVE SOS EMERGENCIES" value={activeSosCount} color="text-red-500" />
-        <Stat label="REGISTERED PROFILES" value={registeredProfileCount} color="text-stone-800" />
-        <Stat label="ROUTE STATIONS" value={routeStationCount} color="text-teal-600" />
-      </div>
+      {/* Stats Grid */}
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="grid grid-cols-2 gap-4 sm:grid-cols-4"
+      >
+        <Stat 
+          icon={Users} 
+          label="Pending Volunteers" 
+          value={pending.length} 
+          color="text-saffron" 
+          bg="bg-saffron/5"
+        />
+        <Stat 
+          icon={AlertTriangle} 
+          label="Active SOS" 
+          value={activeSosCount} 
+          color="text-maroon" 
+          bg="bg-maroon/5"
+        />
+        <Stat 
+          icon={UserCheck} 
+          label="Registered Devotees" 
+          value={registeredProfileCount} 
+          color="text-tulsi" 
+          bg="bg-tulsi/5"
+        />
+        <Stat 
+          icon={MapPin} 
+          label="Route Stations" 
+          value={routeStationCount} 
+          color="text-gold" 
+          bg="bg-gold/5"
+        />
+      </motion.div>
 
-      <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-stone-900 mb-4 flex items-center gap-2">
-          <span>📝</span> Pending Volunteer Applications ({pending.length})
+      {/* Pending Applications */}
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="rounded-organic-lg bg-cream p-6 shadow-warm-md border border-gold-light/20"
+      >
+        <h2 className="font-serif text-xl font-semibold text-text flex items-center gap-2 mb-4">
+          <Users className="w-5 h-5 text-saffron" />
+          Pending Applications
+          <span className="ml-auto text-sm font-sans font-medium bg-saffron/10 text-saffron px-3 py-1 rounded-pill">
+            {pending.length}
+          </span>
         </h2>
+
         {pending.length === 0 ? (
-          <div className="rounded-2xl bg-stone-50 p-8 text-center text-sm text-stone-500 border border-stone-200">
-            No pending applications.
+          <div className="rounded-organic-sm bg-cream-darker p-12 text-center border border-gold-light/10">
+            <CheckCircle className="w-12 h-12 text-tulsi/30 mx-auto mb-3" />
+            <p className="text-text-light/60 font-medium">All clear! No pending applications.</p>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
-            {pending.map((application) => {
+            {pending.map((application, index) => {
               const station = nodes.find((node) => node.id === application.preferred_station)?.name ?? 'Not provided';
               const emergency = application.emergency_contact?.trim() || 'Not provided';
               return (
-                <div
+                <motion.div
                   key={application.id}
-                  className="rounded-2xl border border-amber-200/80 bg-amber-50/30 p-5 shadow-sm flex flex-col justify-between"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  className="rounded-organic-sm bg-cream-darker p-5 border border-gold-light/15 hover:border-gold-light/30 transition-colors"
                 >
-                  <div>
-                    <h3 className="text-lg font-bold text-stone-900">{application.full_name}</h3>
-                    <div className="mt-2 space-y-1 text-xs text-stone-600">
-                      <p>📞 <b>Phone:</b> {application.phone}</p>
-                      <p>🚨 <b>Emergency Contact:</b> {emergency}</p>
-                      <p>
-                        📍 <b>Preferred Station:</b>{' '}
-                        <span className="font-bold text-stone-800">{station}</span>
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h3 className="font-serif text-lg font-semibold text-text">{application.full_name}</h3>
+                      <p className="text-xs text-text-light/60 flex items-center gap-1 mt-0.5">
+                        <Calendar className="w-3 h-3" />
+                        Applied {new Date(application.created_at).toLocaleDateString()}
                       </p>
                     </div>
-                    {application.experience && (
-                      <p className="mt-3 text-xs text-stone-700 bg-white/80 p-2.5 rounded-xl border border-amber-100">
-                        <b>Experience:</b> {application.experience}
+                    <span className="text-xs font-medium px-2.5 py-1 rounded-pill bg-turmeric-light/20 text-turmeric-dark border border-turmeric/20">
+                      Pending
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 text-sm">
+                    <p className="flex items-center gap-2 text-text-light">
+                      <Phone className="w-3.5 h-3.5 text-saffron/60" />
+                      <span>{application.phone}</span>
+                    </p>
+                    <p className="flex items-center gap-2 text-text-light">
+                      <AlertCircle className="w-3.5 h-3.5 text-maroon/60" />
+                      <span className="text-xs">Emergency: {emergency}</span>
+                    </p>
+                    <p className="flex items-center gap-2 text-text-light">
+                      <MapPin className="w-3.5 h-3.5 text-saffron/60" />
+                      <span className="font-medium text-text">{station}</span>
+                    </p>
+                    <p className="flex items-center gap-2 text-text-light">
+                      <Building className="w-3.5 h-3.5 text-saffron/60" />
+                      <span>{application.city || 'Not provided'}</span>
+                    </p>
+                  </div>
+
+                  {application.experience && (
+                    <div className="mt-3 p-3 rounded-organic-sm bg-cream border border-gold-light/10">
+                      <p className="text-xs text-text-light flex items-start gap-1.5">
+                        <Briefcase className="w-3.5 h-3.5 text-saffron/60 mt-0.5 flex-shrink-0" />
+                        <span className="line-clamp-2">{application.experience}</span>
                       </p>
-                    )}
-                  </div>
+                    </div>
+                  )}
+
                   <div className="mt-4 flex gap-2">
-                    <button
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
                       onClick={() => void approve(application)}
-                      className="w-full rounded-xl bg-emerald-600 py-2.5 text-xs font-bold text-white shadow hover:bg-emerald-700 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                      className="flex-1 py-2.5 rounded-organic-sm text-xs font-semibold bg-tulsi text-white hover:bg-tulsi-dark transition-all shadow-warm flex items-center justify-center gap-1.5"
                     >
-                      ✓ Approve as Volunteer
-                    </button>
-                    <button
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Approve
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
                       onClick={() => void reject(application)}
-                      className="rounded-xl bg-stone-200 px-3 py-2.5 text-xs font-semibold text-stone-700 hover:bg-stone-300 transition-colors"
+                      className="px-4 py-2.5 rounded-organic-sm text-xs font-semibold bg-maroon/10 text-maroon hover:bg-maroon/20 transition-colors flex items-center justify-center gap-1.5"
                     >
+                      <XCircle className="w-3.5 h-3.5" />
                       Reject
-                    </button>
+                    </motion.button>
                   </div>
-                </div>
+                </motion.div>
               );
             })}
           </div>
         )}
-      </div>
+      </motion.div>
 
-      <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-stone-900 mb-4">Route Node Management</h2>
-        <form className="grid gap-2 md:grid-cols-5" onSubmit={(event) => void saveNode(event)}>
+      {/* Route Node Management */}
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+        className="rounded-organic-lg bg-cream p-6 shadow-warm-md border border-gold-light/20"
+      >
+        <h2 className="font-serif text-xl font-semibold text-text flex items-center gap-2 mb-4">
+          <Navigation className="w-5 h-5 text-saffron" />
+          Route Nodes
+        </h2>
+
+        <form className="grid gap-3 md:grid-cols-5" onSubmit={(event) => void saveNode(event)}>
           <input
-            className="rounded border p-2 text-sm"
+            className="rounded-organic-sm border border-gold-light/30 bg-cream-darker px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow"
             placeholder="Node name"
             value={nodeForm.name}
             onChange={(e) => setNodeForm({ ...nodeForm, name: e.target.value })}
           />
           <input
-            className="rounded border p-2 text-sm"
+            className="rounded-organic-sm border border-gold-light/30 bg-cream-darker px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow"
             placeholder="Latitude"
             value={nodeForm.lat}
             onChange={(e) => setNodeForm({ ...nodeForm, lat: e.target.value })}
           />
           <input
-            className="rounded border p-2 text-sm"
+            className="rounded-organic-sm border border-gold-light/30 bg-cream-darker px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow"
             placeholder="Longitude"
             value={nodeForm.lng}
             onChange={(e) => setNodeForm({ ...nodeForm, lng: e.target.value })}
           />
           <input
-            className="rounded border p-2 text-sm"
+            className="rounded-organic-sm border border-gold-light/30 bg-cream-darker px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow"
             placeholder="Sequence"
             value={nodeForm.sequence_order}
             onChange={(e) => setNodeForm({ ...nodeForm, sequence_order: e.target.value })}
           />
-          <button className="rounded bg-orange-600 px-3 py-2 text-sm font-bold text-white">
-            {nodeForm.id ? 'Update node' : 'Add node'}
-          </button>
+          <motion.button
+            type="submit"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="py-2.5 rounded-organic-sm text-sm font-semibold bg-saffron text-white hover:bg-saffron-dark transition-all shadow-warm flex items-center justify-center gap-1.5"
+          >
+            {nodeForm.id ? (
+              <>
+                <Edit className="w-4 h-4" />
+                Update
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4" />
+                Add
+              </>
+            )}
+          </motion.button>
         </form>
+
         <div className="mt-4 space-y-2">
           {nodes.map((node) => (
-            <div key={node.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm">
-              <span>
-                <b>{node.sequence_order}. {node.name}</b> · {node.lat}, {node.lng}
-              </span>
-              <span className="flex gap-2">
+            <motion.div 
+              key={node.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-organic-sm border border-gold-light/10 bg-cream-darker p-3 hover:border-gold-light/30 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <span className="w-6 h-6 rounded-full bg-saffron/10 text-saffron text-xs font-bold flex items-center justify-center">
+                  {node.sequence_order}
+                </span>
+                <div>
+                  <span className="font-medium text-text">{node.name}</span>
+                  <span className="text-xs text-text-light/50 ml-2">
+                    {node.lat}, {node.lng}
+                  </span>
+                </div>
+              </div>
+              <div className="flex gap-1.5">
                 <button
-                  className="rounded bg-stone-100 px-2 py-1 text-xs font-semibold"
                   onClick={() =>
                     setNodeForm({
                       id: node.id,
@@ -360,29 +572,53 @@ export function AdminLogin({
                       sequence_order: String(node.sequence_order)
                     })
                   }
+                  className="px-3 py-1.5 rounded-organic-sm text-xs font-medium bg-cream border border-gold-light/20 text-text-light hover:bg-cream-darker hover:border-gold-light/40 transition-colors flex items-center gap-1"
                 >
+                  <Edit className="w-3 h-3" />
                   Edit
                 </button>
                 <button
-                  className="rounded bg-red-100 px-2 py-1 text-xs font-semibold text-red-700"
                   onClick={() => void removeNode(node)}
+                  className="px-3 py-1.5 rounded-organic-sm text-xs font-medium bg-maroon/10 text-maroon hover:bg-maroon/20 transition-colors flex items-center gap-1"
                 >
+                  <Trash2 className="w-3 h-3" />
                   Remove
                 </button>
-              </span>
-            </div>
+              </div>
+            </motion.div>
           ))}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
 
-function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+// ============================================
+// Stat Component
+// ============================================
+function Stat({ 
+  icon: Icon, 
+  label, 
+  value, 
+  color, 
+  bg 
+}: { 
+  icon: React.ElementType; 
+  label: string; 
+  value: number; 
+  color: string; 
+  bg: string;
+}) {
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
-      <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">{label}</span>
+    <motion.div 
+      whileHover={{ y: -2 }}
+      className={`rounded-organic-sm ${bg} p-5 border border-gold-light/10 shadow-warm`}
+    >
+      <div className="flex items-center gap-2">
+        <Icon className={`w-4 h-4 ${color}`} />
+        <span className="text-[10px] font-bold uppercase tracking-wider text-text-light/60">{label}</span>
+      </div>
       <div className={`mt-2 text-3xl font-black ${color}`}>{value}</div>
-    </div>
+    </motion.div>
   );
 }

@@ -1,27 +1,45 @@
 {
+  "name": "pandharpur-vari",
+  "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/supabase-js": "latest",
-    "@vitejs/plugin-react": "latest",
-    "i": "^0.3.7",
-    "idb": "latest",
-    "leaflet": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "vite-plugin-pwa": "latest",
-    "workbox-precaching": "latest"
+    "@radix-ui/react-dialog": "^1.1.2",
+    "@radix-ui/react-dropdown-menu": "^2.1.2",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-select": "^2.1.2",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-tabs": "^1.1.1",
+    "@supabase/supabase-js": "^2.45.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^11.3.31",
+    "idb": "^8.0.0",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.439.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-leaflet": "^4.2.1",
+    "react-router-dom": "^6.26.1",
+    "tailwind-merge": "^2.5.2",
+    "vite-plugin-pwa": "^0.20.0",
+    "workbox-precaching": "^7.1.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "latest",
-    "@types/leaflet": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "tailwindcss": "latest",
-    "typescript": "latest",
-    "vite": "latest"
+    "@types/leaflet": "^1.9.12",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/react-router-dom": "^5.3.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.25",
+    "tailwindcss": "^3.4.19",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0"
   }
 }

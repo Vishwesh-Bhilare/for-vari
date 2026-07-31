@@ -10,6 +10,25 @@ import type { CrowdReport, Density, ItemRequest, NodePoint, Profile, Sighting, S
 import { VolunteerApplication } from './components/VolunteerApplication';
 import { AdminLogin } from './pages/AdminLogin';
 import { AuthModal } from './components/AuthModal';
+import Layout from './components/Layout';
+import { 
+  MapPin, 
+  Users, 
+  AlertTriangle, 
+  CheckCircle, 
+  Clock, 
+  User, 
+  Phone, 
+  Shield, 
+  Heart, 
+  Sparkles,
+  ArrowRight,
+  Navigation,
+  Camera,
+  Circle,
+  RefreshCw
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const seedNodes: NodePoint[] = [
   { id: '11111111-1111-4111-8111-111111111111', name: 'Dehu', lat: 18.7187, lng: 73.7661, sequence_order: 1 },
@@ -20,7 +39,19 @@ const seedNodes: NodePoint[] = [
   { id: '66666666-6666-4666-8666-666666666666', name: 'Pandharpur', lat: 17.6746, lng: 75.3237, sequence_order: 6 }
 ];
 
-const densityClass: Record<Density, string> = { unknown: '#94a3b8', low: '#16a34a', medium: '#f59e0b', high: '#dc2626' };
+const densityClass: Record<Density, string> = { 
+  unknown: '#94a3b8', 
+  low: '#4A7C59', 
+  medium: '#E8B931', 
+  high: '#7B2D26' 
+};
+
+const densityLabel: Record<Density, string> = {
+  unknown: 'No Data',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High'
+};
 
 const REQUEST_EXPIRY_MS = 2 * 60 * 60 * 1000;
 const COMMON_ITEM_CHIPS = ['Water', 'Torch/Flashlight', 'Phone charger', 'Medicine', 'Blanket'];
@@ -149,16 +180,43 @@ function App() {
 
     if (!mapRef.current) {
       mapRef.current = L.map('map', { zoomControl: false, attributionControl: true }).setView([17.95, 74.7], 8);
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18, crossOrigin: true }).addTo(mapRef.current);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+        attribution: '&copy; OpenStreetMap contributors', 
+        maxZoom: 18, 
+        crossOrigin: true 
+      }).addTo(mapRef.current);
       markerLayerRef.current = L.layerGroup().addTo(mapRef.current);
     }
     const latest = new Map<string, Density>();
     reports.forEach((r) => !latest.has(r.node_id) && latest.set(r.node_id, r.density));
     markerLayerRef.current?.clearLayers();
-    nodes.forEach((node) => L.circleMarker([node.lat, node.lng], { radius: 11, color: '#7c2d12', fillColor: densityClass[latest.get(node.id) ?? 'unknown'], fillOpacity: 0.9 })
-      .bindPopup(`${node.name}: ${latest.get(node.id) ?? 'no data'} crowd`).addTo(markerLayerRef.current!));
+    nodes.forEach((node) => {
+      const density = latest.get(node.id) ?? 'unknown';
+      const color = densityClass[density];
+      const marker = L.circleMarker([node.lat, node.lng], { 
+        radius: 12, 
+        color: '#7B2D26', 
+        weight: 2,
+        fillColor: color, 
+        fillOpacity: 0.85
+      });
+      marker.bindPopup(`
+        <div style="font-family: 'Inter', sans-serif; padding: 4px;">
+          <strong style="font-family: 'Fraunces', serif; font-size: 16px;">${node.name}</strong>
+          <br/>
+          <span style="color: ${color}; font-weight: 600;">${densityLabel[density]}</span>
+          <span style="color: #5A4036; font-size: 12px;">crowd density</span>
+        </div>
+      `);
+      marker.addTo(markerLayerRef.current!);
+    });
     routeRef.current?.remove();
-    routeRef.current = L.polyline(nodes.map((n) => [n.lat, n.lng] as L.LatLngTuple), { color: '#ea580c', weight: 4 }).addTo(mapRef.current);
+    routeRef.current = L.polyline(nodes.map((n) => [n.lat, n.lng] as L.LatLngTuple), { 
+      color: '#E8832D', 
+      weight: 3,
+      opacity: 0.5,
+      dashArray: '8, 6'
+    }).addTo(mapRef.current);
   }, [view, nodes, reports]);
 
   const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
@@ -336,80 +394,11 @@ function App() {
     }
   }
 
-  return (
-    <main className="min-h-screen bg-orange-50 text-stone-900">
-      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
-      <header className="bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 p-4 sm:p-5 text-white shadow-md">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-700/60 border border-white/20 text-white font-black text-lg shadow-inner">
-              🚩
-            </div>
-            <div>
-              <p className="text-[10px] font-extrabold uppercase tracking-widest text-orange-200">Pandharpur Vari</p>
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white leading-tight">Wari Companion</h1>
-            </div>
-
-            <div className="hidden md:flex items-center gap-2 ml-4">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-950/40 px-3 py-1 text-xs font-semibold text-emerald-200 border border-emerald-500/30">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /> Live Sync
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-950/40 px-3 py-1 text-xs font-semibold text-orange-200 border border-orange-400/30">
-                👤 ID: Active | Role: <span className="capitalize font-bold">{role}</span>
-              </span>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={() => changeView('pilgrim')}
-              className={`rounded-xl px-4 py-2 text-xs font-bold transition-all flex items-center gap-1.5 ${
-                view === 'pilgrim'
-                  ? 'bg-white text-orange-700 shadow-md scale-105'
-                  : 'bg-orange-800/40 text-white hover:bg-orange-800/60 border border-white/10'
-              }`}
-            >
-              <span>🗺️</span> Pilgrim Companion
-            </button>
-            <button
-              onClick={() => changeView('admin')}
-              className={`rounded-xl px-4 py-2 text-xs font-bold transition-all flex items-center gap-1.5 ${
-                view === 'admin'
-                  ? 'bg-white text-orange-700 shadow-md scale-105'
-                  : 'bg-orange-800/40 text-white hover:bg-orange-800/60 border border-white/10'
-              }`}
-            >
-              <span>⚡</span> Admin Panel
-            </button>
-
-            {session ? (
-              <div className="flex items-center gap-2 rounded-xl bg-orange-900/40 border border-white/15 px-3 py-2 text-xs font-semibold text-white">
-                <span>{profile?.display_name ?? session.user.email ?? 'Signed in'}</span>
-                <button type="button" onClick={() => void handleSignOut()} className="font-bold underline decoration-white/60 underline-offset-2 ml-1 text-orange-200 hover:text-white">
-                  Sign out
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowAuthModal(true)}
-                className="rounded-xl bg-white/90 px-4 py-2 text-xs font-bold text-orange-700 shadow hover:bg-white transition-all"
-              >
-                Sign in / Register
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {(notice || authError || profileError || applicationError) && (
-        <div className={`mx-4 mt-4 rounded-xl border p-3 text-sm font-semibold ${notice?.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
-          {notice?.text ?? authError ?? profileError ?? applicationError}
-        </div>
-      )}
-
-      {view === 'admin' ? (
-        <div className="p-4 sm:p-6">
+  // Render content based on view
+  const renderContent = () => {
+    if (view === 'admin') {
+      return (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <AdminLogin
             userId={currentMemberId}
             role={role}
@@ -420,19 +409,93 @@ function App() {
             onNodesChange={setNodes}
           />
         </div>
-      ) : (
-        <div className="space-y-4">
-          {/* Volunteer Application Modal */}
+      );
+    }
+
+    return (
+      <div className="space-y-8 pb-8">
+        {/* Hero Section - Welcome */}
+        <section className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-saffron-glow opacity-40" />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="text-center max-w-3xl mx-auto"
+            >
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gold-light/30 border border-gold/20 text-sm text-text-light mb-4">
+                <Sparkles className="w-4 h-4 text-gold" />
+                <span>Wari 2026 • Journey of Devotion</span>
+              </div>
+              <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-bold text-text leading-tight mb-4">
+                Welcome to the 
+                <span className="text-saffron"> Wari</span>
+              </h1>
+              <p className="text-text-light text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed">
+                Connect with fellow devotees, track crowd density, and share resources 
+                on the sacred journey to Pandharpur.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
+                <span className="inline-flex items-center gap-2 px-4 py-2 rounded-organic-sm bg-cream/80 shadow-warm text-sm">
+                  <MapPin className="w-4 h-4 text-saffron" />
+                  <span>{nodes.length} Stations</span>
+                </span>
+                <span className="inline-flex items-center gap-2 px-4 py-2 rounded-organic-sm bg-cream/80 shadow-warm text-sm">
+                  <Users className="w-4 h-4 text-tulsi" />
+                  <span>{registeredProfileCount} Devotees</span>
+                </span>
+                <span className="inline-flex items-center gap-2 px-4 py-2 rounded-organic-sm bg-cream/80 shadow-warm text-sm">
+                  <AlertTriangle className="w-4 h-4 text-maroon" />
+                  <span>{activeSosCount} Active SOS</span>
+                </span>
+              </div>
+            </motion.div>
+          </div>
+          <div className="divider-organic max-w-7xl mx-auto px-4">
+            <span>⟡</span>
+          </div>
+        </section>
+
+        {/* Notice */}
+        {(notice || authError || profileError || applicationError) && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className={`rounded-organic-sm border p-4 text-sm font-medium flex items-center gap-3 ${
+              notice?.type === 'success' 
+                ? 'border-tulsi-light/30 bg-tulsi-lighter/30 text-tulsi-dark' 
+                : 'border-maroon-light/30 bg-maroon-lighter/20 text-maroon-dark'
+            }`}>
+              <span>{notice?.type === 'success' ? '✓' : '⚠'}</span>
+              <span>{notice?.text ?? authError ?? profileError ?? applicationError}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Volunteer Application Modal */}
+        <AnimatePresence>
           {showApplyModal && (
-            <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-stone-900/60 backdrop-blur-sm p-4">
-              <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4">
-                <div className="flex items-center justify-between border-b pb-3">
-                  <h3 className="text-lg font-bold text-stone-900 flex items-center gap-2">
-                    <span>🙋‍♂️</span> Volunteer Application for Wari
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[2000] flex items-center justify-center bg-text/60 backdrop-blur-sm p-4"
+              onClick={() => setShowApplyModal(false)}
+            >
+              <motion.div 
+                initial={{ scale: 0.95, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.95, y: 20 }}
+                className="relative w-full max-w-lg rounded-organic-lg bg-cream p-6 shadow-warm-xl max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b border-gold-light/20 pb-4 mb-4">
+                  <h3 className="font-serif text-xl font-bold text-text flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-saffron" />
+                    Volunteer Application
                   </h3>
                   <button
                     onClick={() => setShowApplyModal(false)}
-                    className="rounded-full bg-stone-100 p-2 text-xs font-bold text-stone-500 hover:bg-stone-200"
+                    className="p-2 rounded-organic-sm text-text-light hover:text-text hover:bg-cream/80 transition-colors"
                   >
                     ✕
                   </button>
@@ -443,226 +506,373 @@ function App() {
                   nodes={nodes}
                   onRequireAuth={() => setShowAuthModal(true)}
                 />
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           )}
+        </AnimatePresence>
 
-          {/* Fixed SOS Button */}
-          <button
-            onClick={sendSos}
-            className="fixed bottom-5 right-5 z-[1000] rounded-full bg-red-600 px-6 py-4 font-bold text-white shadow-xl hover:bg-red-700 active:scale-95 transition-all"
-          >
-            SOS
-          </button>
+        {/* Auth Modal */}
+        <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
-          {/* Map & Crowd Density Section */}
-          <section className="grid gap-4 p-4 lg:grid-cols-[2fr_1fr]">
-            <div id="map" className="h-[520px] rounded-3xl border-4 border-white shadow" />
-            <aside className="space-y-4 rounded-3xl bg-white p-4 shadow">
-              <h2 className="text-xl font-bold">Report crowd density</h2>
-              <select
-                className="w-full rounded border p-3"
-                value={selectedNode}
-                onChange={(e) => setSelectedNode(e.target.value)}
-              >
-                {nodes.map((node) => (
-                  <option key={node.id} value={node.id}>
-                    {node.name}
-                  </option>
-                ))}
-              </select>
+        {/* Fixed SOS Button */}
+        <motion.button
+          onClick={sendSos}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="fixed bottom-6 right-6 z-[1000] group flex items-center gap-3 px-6 py-4 rounded-pill bg-maroon text-white shadow-warm-lg hover:shadow-warm-xl transition-all duration-300"
+        >
+          <div className="relative">
+            <div className="absolute inset-0 rounded-full bg-maroon-light animate-ping opacity-50" />
+            <AlertTriangle className="w-5 h-5 relative z-10" />
+          </div>
+          <span className="font-bold text-sm">SOS</span>
+        </motion.button>
 
-              <div className="grid grid-cols-3 gap-2">
-                {(['low', 'medium', 'high'] as Density[]).map((d) => (
-                  <button
-                    className="rounded p-3 font-semibold text-white capitalize shadow active:scale-95 transition-all"
-                    style={{ background: densityClass[d] }}
-                    onClick={() => void reportDensity(d)}
-                    key={d}
+        {/* Map & Crowd Density */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+            {/* Map */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="rounded-organic-lg overflow-hidden shadow-warm-md border border-gold-light/20"
+            >
+              <div id="map" className="h-[500px] w-full" />
+            </motion.div>
+
+            {/* Crowd Density Panel */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="rounded-organic-lg bg-cream p-6 shadow-warm-md border border-gold-light/20"
+            >
+              <h2 className="font-serif text-xl font-semibold text-text flex items-center gap-2 mb-4">
+                <Users className="w-5 h-5 text-saffron" />
+                Crowd Density
+              </h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-text-light mb-1.5">
+                    Select Station
+                  </label>
+                  <select
+                    className="w-full rounded-organic-sm border border-gold-light/30 bg-cream-darker px-4 py-2.5 text-text focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow"
+                    value={selectedNode}
+                    onChange={(e) => setSelectedNode(e.target.value)}
                   >
-                    {d}
-                  </button>
-                ))}
-              </div>
-
-              <ul>
-                {latestReports.map(({ node, density }) => (
-                  <li className="flex justify-between border-b py-2 text-sm" key={node.id}>
-                    <span>{node.name}</span>
-                    <b className={density === 'unknown' ? 'text-slate-500' : 'capitalize'}>
-                      {density === 'unknown' ? 'no data yet' : density}
-                    </b>
-                  </li>
-                ))}
-              </ul>
-            </aside>
-          </section>
-
-          {/* 3-Column Bottom Panels matching screenshot */}
-          <section className="grid gap-4 p-4 md:grid-cols-3">
-            {/* Column 1: Peer item lending */}
-            <Panel title="Peer item lending">
-              <div className="mb-2 flex flex-wrap gap-2">
-                {COMMON_ITEM_CHIPS.map((chip) => (
-                  <button key={chip} type="button" className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 hover:bg-orange-100" onClick={() => setItemName(chip)}>
-                    {chip}
-                  </button>
-                ))}
-              </div>
-              {myActiveRequest && (
-                <p className="mb-2 rounded bg-amber-50 p-2 text-xs font-semibold text-amber-800">
-                  You already have an active request for {myActiveRequest.item_name}. Complete or cancel it before creating another.
-                </p>
-              )}
-              <div className="flex gap-2">
-                <input
-                  className="min-w-0 flex-1 rounded border p-2 text-sm"
-                  value={itemName}
-                  onChange={(e) => setItemName(e.target.value)}
-                  placeholder="Need: blanket, water..."
-                />
-                <button
-                  className="rounded bg-orange-600 px-3 text-white text-sm font-semibold hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300"
-                  disabled={Boolean(myActiveRequest)}
-                  onClick={() => void requestItem()}
-                >
-                  Request
-                </button>
-              </div>
-              {sortedPrimaryItems.slice(0, 5).map(({ item: i, distance }, idx) => {
-                const requesterMapUrl = directionsUrl(i.lat, i.lng);
-                const accepterMapUrl = directionsUrl(i.accepter_lat, i.accepter_lng);
-                return (
-                <div className="border-b py-2 text-sm text-stone-700" key={i.id ?? idx}>
-                  <p>
-                    {i.item_name} · <span className="capitalize">{i.status ?? 'open'}</span> · {formatDistance(distance)}{' '}
-                    {i.pending && '· pending'}
-                  </p>
-                  {(i.status ?? 'open') === 'open' && i.requester_id === currentMemberId && (
-                    <button className="mt-1 rounded bg-stone-600 px-2 py-1 text-xs text-white font-semibold shadow" onClick={() => void cancelItem(i)}>Cancel</button>
-                  )}
-                  {(i.status ?? 'open') === 'open' && i.requester_id !== currentMemberId && (
-                    <button className="mt-1 rounded bg-green-600 px-2 py-1 text-xs text-white font-semibold shadow" onClick={() => void acceptItem(i)}>Accept</button>
-                  )}
-                  {i.status === 'accepted' && (i.requester_id === currentMemberId || i.accepted_by === currentMemberId) && (
-                    <div className="mt-1 space-y-1 rounded bg-slate-100 p-2 text-xs">
-                      <p>{requesterMapUrl ? <a className="font-semibold text-blue-700 underline" href={requesterMapUrl} target="_blank" rel="noreferrer">Navigate to requester</a> : 'Requester location unavailable'}</p>
-                      <p>{accepterMapUrl ? <a className="font-semibold text-blue-700 underline" href={accepterMapUrl} target="_blank" rel="noreferrer">Navigate to accepter</a> : 'Accepter location unavailable'}</p>
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <button className="rounded bg-green-700 px-2 py-1 text-white font-semibold shadow" onClick={() => void completeItem(i)}>Mark completed</button>
-                        {i.accepted_by === currentMemberId && <button className="rounded bg-amber-600 px-2 py-1 text-white font-semibold shadow" onClick={() => void unacceptItem(i)}>Can't make it</button>}
-                      </div>
-                    </div>
-                  )}
+                    {nodes.map((node) => (
+                      <option key={node.id} value={node.id}>
+                        {node.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              );})}
-              {recentActivityItems.length > 0 && (
-                <details className="mt-3 text-sm text-stone-600">
-                  <summary className="cursor-pointer font-semibold">Recent completed, cancelled, or expired activity</summary>
-                  {recentActivityItems.slice(0, 5).map((i, idx) => (
-                    <p className="border-b py-2 text-xs" key={i.id ?? idx}>{i.item_name} · {isExpiredOpenRequest(i) ? 'expired' : i.status}</p>
-                  ))}
-                </details>
-              )}
-            </Panel>
 
-            {/* Column 2: Lost & found */}
-            <Panel title="Lost & found">
-              <div className="mb-3 space-y-2 text-sm">
-                <input
-                  className="w-full rounded border p-2"
-                  placeholder="Name"
-                  value={registration.name}
-                  onChange={(e) => setRegistration({ ...registration, name: e.target.value })}
-                />
-                <input
-                  className="w-full rounded border p-2"
-                  placeholder="Phone"
-                  value={registration.phone}
-                  onChange={(e) => setRegistration({ ...registration, phone: e.target.value })}
-                />
-                <input
-                  className="w-full rounded border p-2"
-                  placeholder="Emergency contact"
-                  value={registration.emergency}
-                  onChange={(e) => setRegistration({ ...registration, emergency: e.target.value })}
-                />
-                <input
-                  className="w-full rounded border p-2"
-                  value={registration.groupCode}
-                  placeholder="Enter or generate a family group code"
-                  onChange={(e) => setRegistration({ ...registration, groupCode: e.target.value })}
-                />
-                <button type="button" className="w-full rounded bg-stone-100 px-3 py-2 text-stone-700 text-sm font-semibold shadow" onClick={() => setRegistration({ ...registration, groupCode: makeGroupCode() })}>Generate group code</button>
-                <input
-                  className="w-full rounded border p-2"
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setRegistration({ ...registration, photo: e.target.files?.[0] })}
-                />
-                <button
-                  className="w-full rounded bg-orange-600 px-3 py-2 text-white text-sm font-semibold shadow"
-                  onClick={() => void registerGroup()}
-                >
-                  Register group
-                </button>
-                {registeredGroup && (
-                  <p className="text-sm font-semibold text-green-700">Share code: {registeredGroup}</p>
+                <div>
+                  <label className="block text-sm font-medium text-text-light mb-1.5">
+                    Report Density
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['low', 'medium', 'high'] as Density[]).map((d) => (
+                      <button
+                        key={d}
+                        onClick={() => void reportDensity(d)}
+                        className="py-2.5 rounded-organic-sm text-sm font-semibold text-white capitalize transition-all hover:scale-105 active:scale-95 shadow-warm"
+                        style={{ background: densityClass[d] }}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-gold-light/20 pt-4">
+                  <h3 className="text-sm font-semibold text-text-light mb-2">All Stations</h3>
+                  <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
+                    {latestReports.map(({ node, density }) => (
+                      <div key={node.id} className="flex items-center justify-between py-1.5 px-2 rounded-organic-sm hover:bg-cream-darker/50 transition-colors">
+                        <span className="text-sm text-text">{node.name}</span>
+                        <span 
+                          className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                          style={{ 
+                            color: density === 'unknown' ? '#94a3b8' : '#fff',
+                            background: density === 'unknown' ? '#e2e8f0' : densityClass[density]
+                          }}
+                        >
+                          {densityLabel[density]}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+
+        {/* Three Column Panels */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid gap-6 md:grid-cols-3">
+            {/* Column 1: Peer Lending */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="rounded-organic-lg bg-cream p-6 shadow-warm-md border border-gold-light/20"
+            >
+              <h2 className="font-serif text-xl font-semibold text-text flex items-center gap-2 mb-4">
+                <Heart className="w-5 h-5 text-saffron" />
+                Peer Lending
+              </h2>
+
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-1.5">
+                  {COMMON_ITEM_CHIPS.map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => setItemName(chip)}
+                      className="px-3 py-1 rounded-pill text-xs font-medium bg-gold-light/20 text-text-light hover:bg-gold-light/40 transition-colors"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+
+                {myActiveRequest && (
+                  <div className="rounded-organic-sm bg-turmeric-light/20 border border-turmeric/30 p-3 text-sm">
+                    <p className="font-medium text-text-light">Active request: <span className="text-saffron font-semibold">{myActiveRequest.item_name}</span></p>
+                    <p className="text-xs text-text-light/70">Complete or cancel before creating another</p>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded-organic-sm border border-gold-light/30 px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow bg-cream-darker"
+                    value={itemName}
+                    onChange={(e) => setItemName(e.target.value)}
+                    placeholder="Need: blanket, water..."
+                    disabled={Boolean(myActiveRequest)}
+                  />
+                  <button
+                    onClick={() => void requestItem()}
+                    disabled={Boolean(myActiveRequest)}
+                    className="px-5 py-2.5 rounded-organic-sm text-sm font-semibold bg-saffron text-white hover:bg-saffron-dark transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-warm"
+                  >
+                    Request
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                  {sortedPrimaryItems.slice(0, 5).map(({ item: i, distance }, idx) => {
+                    const requesterMapUrl = directionsUrl(i.lat, i.lng);
+                    const accepterMapUrl = directionsUrl(i.accepter_lat, i.accepter_lng);
+                    return (
+                      <div key={i.id ?? idx} className="rounded-organic-sm bg-cream-darker p-3 border border-gold-light/10">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-text">{i.item_name}</p>
+                            <p className="text-xs text-text-light">
+                              <span className={`capitalize ${i.status === 'open' ? 'text-tulsi' : 'text-gold'}`}>
+                                {i.status ?? 'open'}
+                              </span>
+                              {' · '}{formatDistance(distance)}
+                              {i.pending && ' · pending'}
+                            </p>
+                          </div>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {(i.status ?? 'open') === 'open' && i.requester_id === currentMemberId && (
+                              <button onClick={() => void cancelItem(i)} className="px-2.5 py-1 rounded-organic-sm text-xs font-medium bg-maroon/10 text-maroon hover:bg-maroon/20 transition-colors">
+                                Cancel
+                              </button>
+                            )}
+                            {(i.status ?? 'open') === 'open' && i.requester_id !== currentMemberId && (
+                              <button onClick={() => void acceptItem(i)} className="px-2.5 py-1 rounded-organic-sm text-xs font-medium bg-tulsi/10 text-tulsi hover:bg-tulsi/20 transition-colors">
+                                Accept
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {i.status === 'accepted' && (i.requester_id === currentMemberId || i.accepted_by === currentMemberId) && (
+                          <div className="mt-2 pt-2 border-t border-gold-light/10 space-y-1.5">
+                            {requesterMapUrl && (
+                              <a href={requesterMapUrl} target="_blank" rel="noreferrer" className="text-xs text-saffron hover:underline flex items-center gap-1">
+                                <Navigation className="w-3 h-3" /> Navigate to requester
+                              </a>
+                            )}
+                            {accepterMapUrl && (
+                              <a href={accepterMapUrl} target="_blank" rel="noreferrer" className="text-xs text-saffron hover:underline flex items-center gap-1">
+                                <Navigation className="w-3 h-3" /> Navigate to accepter
+                              </a>
+                            )}
+                            <div className="flex gap-1.5">
+                              <button onClick={() => void completeItem(i)} className="px-2.5 py-1 rounded-organic-sm text-xs font-medium bg-tulsi text-white hover:bg-tulsi-dark transition-colors">
+                                ✓ Complete
+                              </button>
+                              {i.accepted_by === currentMemberId && (
+                                <button onClick={() => void unacceptItem(i)} className="px-2.5 py-1 rounded-organic-sm text-xs font-medium bg-turmeric/20 text-turmeric-dark hover:bg-turmeric/30 transition-colors">
+                                  ↺ Unaccept
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {recentActivityItems.length > 0 && (
+                  <details className="text-sm text-text-light">
+                    <summary className="cursor-pointer font-medium hover:text-text transition-colors">
+                      Recent activity ({recentActivityItems.length})
+                    </summary>
+                    <div className="mt-2 space-y-1">
+                      {recentActivityItems.slice(0, 5).map((i, idx) => (
+                        <p key={i.id ?? idx} className="text-xs text-text-light/70 border-b border-gold-light/10 py-1">
+                          {i.item_name} · {isExpiredOpenRequest(i) ? 'expired' : i.status}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
                 )}
               </div>
-              <input
-                className="mb-2 w-full rounded border p-2 text-sm"
-                value={groupCode}
-                onChange={(e) => setGroupCode(e.target.value)}
-                placeholder="Enter your family's group code"
-              />
-              <label className="mb-2 block text-xs font-semibold text-stone-700">Check-in location
-                <select className="mt-1 w-full rounded border p-2 text-sm" value={checkInNode} onChange={(e) => setCheckInNode(e.target.value)}>
-                  {nodes.map((node) => <option key={node.id} value={node.id}>{node.id === nearestNodeId ? `${node.name} (nearest)` : node.name}</option>)}
-                </select>
-              </label>
-              <button
-                className="w-full rounded bg-amber-600 px-3 py-2 text-white text-sm font-semibold shadow"
-                onClick={() => void checkIn()}
-              >
-                Check in at check-in location
-              </button>
-              <input
-                className="mt-3 w-full rounded border p-2 text-sm"
-                value={familyCode}
-                onChange={(e) => setFamilyCode(e.target.value)}
-                placeholder="Family view group code"
-              />
-              {familyProfiles.length > 0 && (
-                <div className="mt-3 space-y-2 rounded-xl bg-stone-50 p-3">
-                  {familyProfiles.map((member) => (
-                    <div key={member.id} className="flex items-center gap-2 text-sm">
-                      {member.photo_url ? <img src={member.photo_url} alt="" className="h-8 w-8 rounded-full object-cover" /> : <span className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 text-xs font-bold text-orange-700">{(member.display_name ?? '?').slice(0, 1)}</span>}
-                      <span>{member.display_name ?? 'Unnamed family member'}</span>
-                    </div>
-                  ))}
+            </motion.div>
+
+            {/* Column 2: Lost & Found / Family */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="rounded-organic-lg bg-cream p-6 shadow-warm-md border border-gold-light/20"
+            >
+              <h2 className="font-serif text-xl font-semibold text-text flex items-center gap-2 mb-4">
+                <User className="w-5 h-5 text-saffron" />
+                Family & Check-in
+              </h2>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <input
+                    className="w-full rounded-organic-sm border border-gold-light/30 px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow bg-cream-darker"
+                    placeholder="Your Name"
+                    value={registration.name}
+                    onChange={(e) => setRegistration({ ...registration, name: e.target.value })}
+                  />
+                  <input
+                    className="w-full rounded-organic-sm border border-gold-light/30 px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow bg-cream-darker"
+                    placeholder="Phone Number"
+                    value={registration.phone}
+                    onChange={(e) => setRegistration({ ...registration, phone: e.target.value })}
+                  />
+                  <input
+                    className="w-full rounded-organic-sm border border-gold-light/30 px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow bg-cream-darker"
+                    placeholder="Emergency Contact"
+                    value={registration.emergency}
+                    onChange={(e) => setRegistration({ ...registration, emergency: e.target.value })}
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 rounded-organic-sm border border-gold-light/30 px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow bg-cream-darker"
+                      value={registration.groupCode}
+                      placeholder="Group Code"
+                      onChange={(e) => setRegistration({ ...registration, groupCode: e.target.value })}
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setRegistration({ ...registration, groupCode: makeGroupCode() })}
+                      className="px-3 py-2.5 rounded-organic-sm text-sm font-medium bg-cream-darker border border-gold-light/30 text-text-light hover:bg-cream-darker/80 transition-colors whitespace-nowrap"
+                    >
+                      Generate
+                    </button>
+                  </div>
+                  <input
+                    className="w-full rounded-organic-sm border border-gold-light/30 px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow bg-cream-darker"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setRegistration({ ...registration, photo: e.target.files?.[0] })}
+                  />
+                  <button
+                    onClick={() => void registerGroup()}
+                    className="w-full py-2.5 rounded-organic-sm text-sm font-semibold bg-saffron text-white hover:bg-saffron-dark transition-all shadow-warm"
+                  >
+                    {registeredGroup ? 'Update Group' : 'Register Group'}
+                  </button>
+                  {registeredGroup && (
+                    <p className="text-sm font-medium text-tulsi text-center">✓ Code: {registeredGroup}</p>
+                  )}
                 </div>
-              )}
-              {familySightings.slice(0, 5).map((s, idx) => (
-                <p className="border-b py-2 text-sm" key={s.id ?? idx}>
-                  {s.note ?? 'Sighting'} {s.pending && '· pending'}
-                </p>
-              ))}
-            </Panel>
 
-            {/* Column 3: Volunteer dashboard & Apply for Volunteer */}
-            <Panel title="Volunteer dashboard">
-              <div className="space-y-3 text-sm">
-                <p className="text-xs text-stone-500">
-                  Auth-gated in production; demo shows live active alerts, sightings, and requests.
-                </p>
+                <div className="border-t border-gold-light/20 pt-4">
+                  <input
+                    className="w-full rounded-organic-sm border border-gold-light/30 px-4 py-2.5 text-sm text-text placeholder-text-light/50 focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow bg-cream-darker"
+                    value={groupCode}
+                    onChange={(e) => setGroupCode(e.target.value)}
+                    placeholder="Enter group code to check-in"
+                  />
+                  <select
+                    className="w-full mt-2 rounded-organic-sm border border-gold-light/30 px-4 py-2.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow bg-cream-darker"
+                    value={checkInNode}
+                    onChange={(e) => setCheckInNode(e.target.value)}
+                  >
+                    {nodes.map((node) => (
+                      <option key={node.id} value={node.id}>
+                        {node.id === nearestNodeId ? `${node.name} (nearest)` : node.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => void checkIn()}
+                    className="w-full mt-2 py-2.5 rounded-organic-sm text-sm font-semibold bg-gold text-white hover:bg-gold-dark transition-all shadow-warm"
+                  >
+                    Check In
+                  </button>
+                </div>
 
-                {/* Apply for Volunteer Button */}
+                {familyProfiles.length > 0 && (
+                  <div className="border-t border-gold-light/20 pt-4">
+                    <h3 className="text-sm font-semibold text-text-light mb-2">Family Members</h3>
+                    <div className="space-y-1.5">
+                      {familyProfiles.map((member) => (
+                        <div key={member.id} className="flex items-center gap-2 text-sm">
+                          {member.photo_url ? (
+                            <img src={member.photo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-saffron/10 flex items-center justify-center text-saffron font-bold text-xs">
+                              {(member.display_name ?? '?').slice(0, 1)}
+                            </div>
+                          )}
+                          <span className="text-text">{member.display_name ?? 'Unnamed'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+
+            {/* Column 3: Volunteer Dashboard */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="rounded-organic-lg bg-cream p-6 shadow-warm-md border border-gold-light/20"
+            >
+              <h2 className="font-serif text-xl font-semibold text-text flex items-center gap-2 mb-4">
+                <Shield className="w-5 h-5 text-saffron" />
+                Volunteer
+              </h2>
+
+              <div className="space-y-4">
                 <button
                   onClick={() => setShowApplyModal(true)}
-                  className="w-full rounded-xl bg-orange-600 py-2.5 px-3 text-xs font-bold text-white shadow hover:bg-orange-700 transition-all flex items-center justify-center gap-1.5"
+                  className="w-full py-3 rounded-organic-sm text-sm font-semibold bg-saffron text-white hover:bg-saffron-dark transition-all shadow-warm flex items-center justify-center gap-2"
                 >
-                  ⚡ Apply for Volunteer in Vari
+                  <Shield className="w-4 h-4" />
+                  Apply as Volunteer
                 </button>
 
                 {session ? (
@@ -679,20 +889,51 @@ function App() {
                     setSightings={setSightings}
                   />
                 ) : (
-                  <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-4 text-center">
-                    <p className="font-medium text-amber-800">Sign in to access volunteer features.</p>
+                  <div className="rounded-organic-sm bg-turmeric-light/20 border border-turmeric/30 p-4 text-center">
+                    <p className="font-medium text-text-light">Sign in to access volunteer features</p>
                   </div>
                 )}
               </div>
-            </Panel>
-          </section>
-        </div>
-      )}
-    </main>
+            </motion.div>
+          </div>
+        </section>
+      </div>
+    );
+  };
+
+  return (
+    <Layout currentView={view} onViewChange={changeView}>
+      {renderContent()}
+    </Layout>
   );
 }
 
-function VolunteerDashboard({ session, profile, role, approved, loading, nodes, sosAlerts, sightings, setSosAlerts, setSightings }: { session: ReturnType<typeof useSession>['session']; profile: Profile | null; role: string; approved: boolean; loading: boolean; nodes: NodePoint[]; sosAlerts: SosAlert[]; sightings: Sighting[]; setSosAlerts: React.Dispatch<React.SetStateAction<SosAlert[]>>; setSightings: React.Dispatch<React.SetStateAction<Sighting[]>> }) {
+// ============================================
+// Volunteer Dashboard Component
+// ============================================
+function VolunteerDashboard({ 
+  session, 
+  profile, 
+  role, 
+  approved, 
+  loading, 
+  nodes, 
+  sosAlerts, 
+  sightings, 
+  setSosAlerts, 
+  setSightings 
+}: { 
+  session: any; 
+  profile: Profile | null; 
+  role: string; 
+  approved: boolean; 
+  loading: boolean; 
+  nodes: NodePoint[]; 
+  sosAlerts: SosAlert[]; 
+  sightings: Sighting[]; 
+  setSosAlerts: React.Dispatch<React.SetStateAction<SosAlert[]>>; 
+  setSightings: React.Dispatch<React.SetStateAction<Sighting[]>>;
+}) {
   const [scope, setScope] = useState(profile?.node_id ?? 'all');
   useEffect(() => setScope(profile?.node_id ?? 'all'), [profile?.node_id]);
   const permitted = (role === 'volunteer' || role === 'admin') && approved;
@@ -715,44 +956,83 @@ function VolunteerDashboard({ session, profile, role, approved, loading, nodes, 
     }
   }
 
-  if (loading) return <p className="text-sm text-stone-500">Loading access...</p>;
-  if (!permitted) return <p className="text-sm text-stone-500">Approved volunteer or admin access is required.</p>;
+  if (loading) return <p className="text-sm text-text-light">Loading access...</p>;
+  if (!permitted) return <p className="text-sm text-text-light">Approved volunteer or admin access required.</p>;
 
   return (
-    <div className="space-y-3 text-sm">
-      <label className="block font-semibold">Node filter
-        <select className="mt-1 w-full rounded-xl border p-2 text-sm font-semibold" value={scope} onChange={(e) => setScope(e.target.value)}>
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-text-light mb-1.5">Filter by Node</label>
+        <select 
+          className="w-full rounded-organic-sm border border-gold-light/30 px-4 py-2.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-saffron/30 transition-shadow bg-cream-darker"
+          value={scope} 
+          onChange={(e) => setScope(e.target.value)}
+        >
           <option value="all">All nodes</option>
-          {nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+          {nodes.map((node) => (
+            <option key={node.id} value={node.id}>{node.name}</option>
+          ))}
         </select>
-      </label>
-      <div>
-        <h3 className="font-bold">SOS alerts</h3>
-        {scopedAlerts.slice(0, 5).map((s, idx) => (
-          <div className="border-b py-2 text-red-700" key={s.id ?? idx}>
-            {s.status} SOS near {nodes.find((n) => n.id === s.node_id)?.name ?? s.node_id}{' '}
-            {s.status === 'active' && <button className="ml-2 rounded-lg bg-red-600 px-3 py-1 text-white text-xs font-bold shadow" onClick={() => void resolveSos(s)}>Resolve</button>}
-          </div>
-        ))}
       </div>
+
       <div>
-        <h3 className="font-bold">Sightings</h3>
-        {scopedSightings.slice(0, 5).map((s, idx) => (
-          <div className="border-b py-2" key={s.id ?? idx}>
-            {s.note ?? 'Sighting'} {s.verified ? '· verified' : <button className="ml-2 rounded-lg bg-green-600 px-3 py-1 text-white text-xs font-bold shadow" onClick={() => void verifySighting(s)}>Verify</button>}
+        <h3 className="font-semibold text-text flex items-center gap-2 mb-2">
+          <AlertTriangle className="w-4 h-4 text-maroon" />
+          SOS Alerts
+        </h3>
+        {scopedAlerts.length === 0 ? (
+          <p className="text-sm text-text-light/60">No active alerts</p>
+        ) : (
+          <div className="space-y-1.5">
+            {scopedAlerts.slice(0, 5).map((s, idx) => (
+              <div key={s.id ?? idx} className="flex items-center justify-between py-1.5 px-2 rounded-organic-sm bg-maroon/5 border border-maroon/10">
+                <span className="text-sm text-text">
+                  <span className={`inline-block w-2 h-2 rounded-full ${s.status === 'active' ? 'bg-maroon animate-pulse' : 'bg-text-light/30'} mr-2`} />
+                  {nodes.find((n) => n.id === s.node_id)?.name ?? s.node_id}
+                </span>
+                {s.status === 'active' && (
+                  <button 
+                    onClick={() => void resolveSos(s)} 
+                    className="px-3 py-1 rounded-organic-sm text-xs font-medium bg-maroon text-white hover:bg-maroon-dark transition-colors"
+                  >
+                    Resolve
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
-        ))}
+        )}
+      </div>
+
+      <div>
+        <h3 className="font-semibold text-text flex items-center gap-2 mb-2">
+          <CheckCircle className="w-4 h-4 text-tulsi" />
+          Sightings
+        </h3>
+        {scopedSightings.length === 0 ? (
+          <p className="text-sm text-text-light/60">No sightings to verify</p>
+        ) : (
+          <div className="space-y-1.5">
+            {scopedSightings.slice(0, 5).map((s, idx) => (
+              <div key={s.id ?? idx} className="flex items-center justify-between py-1.5 px-2 rounded-organic-sm bg-cream-darker border border-gold-light/10">
+                <span className="text-sm text-text">
+                  {s.note ?? 'Sighting'}
+                  {s.verified && <span className="ml-2 text-xs text-tulsi">✓ verified</span>}
+                </span>
+                {!s.verified && (
+                  <button 
+                    onClick={() => void verifySighting(s)} 
+                    className="px-3 py-1 rounded-organic-sm text-xs font-medium bg-tulsi text-white hover:bg-tulsi-dark transition-colors"
+                  >
+                    Verify
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
-  );
-}
-
-function Panel({ title, children }: React.PropsWithChildren<{ title: string }>) {
-  return (
-    <section className="rounded-3xl bg-white p-5 shadow border border-stone-200">
-      <h2 className="mb-3 text-xl font-bold text-stone-900">{title}</h2>
-      {children}
-    </section>
   );
 }
 
