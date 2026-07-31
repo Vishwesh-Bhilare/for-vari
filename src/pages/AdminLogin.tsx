@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { isSupabaseConfigured, supabase } from '../supabase';
+import { getSupabaseConfigError, isSupabaseConfigured, supabase } from '../supabase';
+import { signIn } from '../auth';
 import type { NodePoint, VolunteerApplication } from '../types';
 
 type NodeForm = { id?: string; name: string; lat: string; lng: string; sequence_order: string };
@@ -27,7 +28,13 @@ export function AdminLogin({
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState<VolunteerApplication[]>([]);
   const [nodeForm, setNodeForm] = useState<NodeForm>(emptyNodeForm);
+  const [adminEmail, setAdminEmail] = useState('Bhilarevishwesh@gmail.com');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
   const isAdmin = role === 'admin';
+  const configError = getSupabaseConfigError();
 
   useEffect(() => {
     if (!isSupabaseConfigured || !isAdmin) return;
@@ -62,6 +69,23 @@ export function AdminLogin({
     };
   }, [isAdmin]);
 
+  async function handleAdminLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setLoginError('');
+    if (!adminEmail.trim() || !adminPassword.trim()) {
+      setLoginError('Please enter admin email and password.');
+      return;
+    }
+    setLoggingIn(true);
+    try {
+      await signIn(adminEmail.trim(), adminPassword);
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'Admin login failed.');
+    } finally {
+      setLoggingIn(false);
+    }
+  }
+
   async function approve(application: VolunteerApplication) {
     if (isSupabaseConfigured && userId && isAdmin) {
       const { error } = await supabase.rpc('approve_volunteer_application', { application_id: application.id });
@@ -88,7 +112,7 @@ export function AdminLogin({
 
   async function saveNode(event: React.FormEvent) {
     event.preventDefault();
-    if (!isSupabaseConfigured || !isAdmin) return;
+    if (!isAdmin || !isSupabaseConfigured) return;
     const payload = {
       name: nodeForm.name.trim(),
       lat: Number(nodeForm.lat),
@@ -117,7 +141,7 @@ export function AdminLogin({
   }
 
   async function removeNode(node: NodePoint) {
-    if (!isSupabaseConfigured || !isAdmin) return;
+    if (!isAdmin || !isSupabaseConfigured) return;
     const { error } = await supabase.from('nodes').delete().eq('id', node.id);
     if (error) {
       setMessage(error.message);
@@ -127,58 +151,238 @@ export function AdminLogin({
     setMessage('Route node removed.');
   }
 
+  // Render Admin Login Card when user is not logged in as admin
   if (!isAdmin) {
     return (
-      <section className="mx-auto max-w-md my-8 rounded-3xl bg-white p-8 shadow-xl border border-stone-200 text-stone-900">
-        <div className="text-center mb-6">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500 text-2xl font-bold text-white shadow-md mb-3">🔒</div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Administrator Access Required</h1>
-          <p className="text-sm text-stone-600 mt-2">You are signed in but do not have administrator privileges.</p>
-          <p className="text-xs text-stone-500 mt-1">Only accounts with role = 'admin' may access this dashboard.</p>
+      <div className="flex min-h-[70vh] items-center justify-center p-4">
+        <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl border border-stone-200">
+          {/* Dark Header Card matching screenshot */}
+          <div className="bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900 p-8 text-center text-white">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center text-3xl mb-2">
+              ⚡
+            </div>
+            <h1 className="text-xl font-black tracking-tight">Admin Dashboard Login</h1>
+            <p className="mt-2 text-xs text-stone-400 max-w-xs mx-auto leading-relaxed">
+              Log in with an administrator account to verify volunteer applications, grant roles, and monitor metrics.
+            </p>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Warning banner if Supabase URL or anon key is missing/unconfigured */}
+            {(!isSupabaseConfigured || configError) && (
+              <div className="rounded-2xl bg-red-50 p-4 border border-red-200 text-red-700 text-xs font-medium space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <span>⚠️</span> Supabase backend URL / Key is missing or unconfigured in .env.
+                </p>
+              </div>
+            )}
+
+            {loginError && (
+              <div className="rounded-2xl bg-red-50 p-3 text-xs font-semibold text-red-700 border border-red-200">
+                {loginError}
+              </div>
+            )}
+
+            <form onSubmit={(e) => void handleAdminLogin(e)} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-stone-500 mb-1.5">
+                  ADMIN EMAIL
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  placeholder="admin@example.com"
+                  className="w-full rounded-xl border border-stone-300 px-3.5 py-2.5 text-sm text-stone-900 focus:border-stone-900 focus:outline-none transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-stone-500 mb-1.5">
+                  ADMIN PASSWORD
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full rounded-xl border border-stone-300 px-3.5 py-2.5 text-sm text-stone-900 focus:border-stone-900 focus:outline-none transition-colors"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loggingIn}
+                className="w-full rounded-xl bg-stone-950 py-3.5 text-sm font-bold text-white shadow-md hover:bg-stone-800 active:scale-[0.99] transition-all disabled:opacity-50"
+              >
+                {loggingIn ? 'Authenticating...' : 'Log In as Admin'}
+              </button>
+            </form>
+          </div>
         </div>
-      </section>
+      </div>
     );
   }
 
+  // Dashboard view for authenticated admin
   return (
     <div className="mx-auto max-w-6xl space-y-6 text-stone-900">
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 p-6 sm:p-8 text-white shadow-xl border border-amber-900/40">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div><span className="text-[11px] font-extrabold uppercase tracking-widest text-amber-400">CONTROL CENTER</span><h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2">⚡ Admin Control Panel</h1><p className="mt-1.5 text-xs sm:text-sm text-stone-300">Manage volunteer approvals, route nodes, user permissions, and system metrics.</p></div>
+          <div>
+            <span className="text-[11px] font-extrabold uppercase tracking-widest text-amber-400">CONTROL CENTER</span>
+            <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2">
+              ⚡ Admin Control Panel
+            </h1>
+            <p className="mt-1.5 text-xs sm:text-sm text-stone-300">
+              Manage volunteer approvals, route nodes, user permissions, and system metrics.
+            </p>
+          </div>
         </div>
       </div>
-      {message && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800 border border-amber-200">{message}</p>}
+
+      {message && (
+        <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800 border border-amber-200">
+          {message}
+        </p>
+      )}
+
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="PENDING VOLUNTEERS" value={pending.length} color="text-orange-500" />
         <Stat label="ACTIVE SOS EMERGENCIES" value={activeSosCount} color="text-red-500" />
         <Stat label="REGISTERED PROFILES" value={registeredProfileCount} color="text-stone-800" />
         <Stat label="ROUTE STATIONS" value={routeStationCount} color="text-teal-600" />
       </div>
+
       <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-stone-900 mb-4 flex items-center gap-2"><span>📝</span> Pending Volunteer Applications ({pending.length})</h2>
-        {pending.length === 0 ? <div className="rounded-2xl bg-stone-50 p-8 text-center text-sm text-stone-500 border border-stone-200">No pending applications.</div> : (
-          <div className="grid gap-4 sm:grid-cols-2">{pending.map((application) => {
-            const station = nodes.find((node) => node.id === application.preferred_station)?.name ?? 'Not provided';
-            const emergency = application.emergency_contact?.trim() || 'Not provided';
-            return <div key={application.id} className="rounded-2xl border border-amber-200/80 bg-amber-50/30 p-5 shadow-sm flex flex-col justify-between"><div><h3 className="text-lg font-bold text-stone-900">{application.full_name}</h3><div className="mt-2 space-y-1 text-xs text-stone-600"><p>📞 <b>Phone:</b> {application.phone}</p><p>🚨 <b>Emergency Contact:</b> {emergency}</p><p>📍 <b>Preferred Station:</b> <span className="font-bold text-stone-800">{station}</span></p></div>{application.experience && <p className="mt-3 text-xs text-stone-700 bg-white/80 p-2.5 rounded-xl border border-amber-100"><b>Experience:</b> {application.experience}</p>}</div><div className="mt-4 flex gap-2"><button onClick={() => void approve(application)} className="w-full rounded-xl bg-emerald-600 py-2.5 text-xs font-bold text-white shadow hover:bg-emerald-700 active:scale-95 transition-all flex items-center justify-center gap-1.5">✓ Approve as Volunteer</button><button onClick={() => void reject(application)} className="rounded-xl bg-stone-200 px-3 py-2.5 text-xs font-semibold text-stone-700 hover:bg-stone-300 transition-colors">Reject</button></div></div>;
-          })}</div>
+        <h2 className="text-lg font-bold text-stone-900 mb-4 flex items-center gap-2">
+          <span>📝</span> Pending Volunteer Applications ({pending.length})
+        </h2>
+        {pending.length === 0 ? (
+          <div className="rounded-2xl bg-stone-50 p-8 text-center text-sm text-stone-500 border border-stone-200">
+            No pending applications.
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {pending.map((application) => {
+              const station = nodes.find((node) => node.id === application.preferred_station)?.name ?? 'Not provided';
+              const emergency = application.emergency_contact?.trim() || 'Not provided';
+              return (
+                <div
+                  key={application.id}
+                  className="rounded-2xl border border-amber-200/80 bg-amber-50/30 p-5 shadow-sm flex flex-col justify-between"
+                >
+                  <div>
+                    <h3 className="text-lg font-bold text-stone-900">{application.full_name}</h3>
+                    <div className="mt-2 space-y-1 text-xs text-stone-600">
+                      <p>📞 <b>Phone:</b> {application.phone}</p>
+                      <p>🚨 <b>Emergency Contact:</b> {emergency}</p>
+                      <p>
+                        📍 <b>Preferred Station:</b>{' '}
+                        <span className="font-bold text-stone-800">{station}</span>
+                      </p>
+                    </div>
+                    {application.experience && (
+                      <p className="mt-3 text-xs text-stone-700 bg-white/80 p-2.5 rounded-xl border border-amber-100">
+                        <b>Experience:</b> {application.experience}
+                      </p>
+                    )}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      onClick={() => void approve(application)}
+                      className="w-full rounded-xl bg-emerald-600 py-2.5 text-xs font-bold text-white shadow hover:bg-emerald-700 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                    >
+                      ✓ Approve as Volunteer
+                    </button>
+                    <button
+                      onClick={() => void reject(application)}
+                      className="rounded-xl bg-stone-200 px-3 py-2.5 text-xs font-semibold text-stone-700 hover:bg-stone-300 transition-colors"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
+
       <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-stone-900 mb-4">Route Node Management</h2>
         <form className="grid gap-2 md:grid-cols-5" onSubmit={(event) => void saveNode(event)}>
-          <input className="rounded border p-2 text-sm" placeholder="Node name" value={nodeForm.name} onChange={(e) => setNodeForm({ ...nodeForm, name: e.target.value })} />
-          <input className="rounded border p-2 text-sm" placeholder="Latitude" value={nodeForm.lat} onChange={(e) => setNodeForm({ ...nodeForm, lat: e.target.value })} />
-          <input className="rounded border p-2 text-sm" placeholder="Longitude" value={nodeForm.lng} onChange={(e) => setNodeForm({ ...nodeForm, lng: e.target.value })} />
-          <input className="rounded border p-2 text-sm" placeholder="Sequence" value={nodeForm.sequence_order} onChange={(e) => setNodeForm({ ...nodeForm, sequence_order: e.target.value })} />
-          <button className="rounded bg-orange-600 px-3 py-2 text-sm font-bold text-white">{nodeForm.id ? 'Update node' : 'Add node'}</button>
+          <input
+            className="rounded border p-2 text-sm"
+            placeholder="Node name"
+            value={nodeForm.name}
+            onChange={(e) => setNodeForm({ ...nodeForm, name: e.target.value })}
+          />
+          <input
+            className="rounded border p-2 text-sm"
+            placeholder="Latitude"
+            value={nodeForm.lat}
+            onChange={(e) => setNodeForm({ ...nodeForm, lat: e.target.value })}
+          />
+          <input
+            className="rounded border p-2 text-sm"
+            placeholder="Longitude"
+            value={nodeForm.lng}
+            onChange={(e) => setNodeForm({ ...nodeForm, lng: e.target.value })}
+          />
+          <input
+            className="rounded border p-2 text-sm"
+            placeholder="Sequence"
+            value={nodeForm.sequence_order}
+            onChange={(e) => setNodeForm({ ...nodeForm, sequence_order: e.target.value })}
+          />
+          <button className="rounded bg-orange-600 px-3 py-2 text-sm font-bold text-white">
+            {nodeForm.id ? 'Update node' : 'Add node'}
+          </button>
         </form>
-        <div className="mt-4 space-y-2">{nodes.map((node) => <div key={node.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm"><span><b>{node.sequence_order}. {node.name}</b> · {node.lat}, {node.lng}</span><span className="flex gap-2"><button className="rounded bg-stone-100 px-2 py-1 text-xs font-semibold" onClick={() => setNodeForm({ id: node.id, name: node.name, lat: String(node.lat), lng: String(node.lng), sequence_order: String(node.sequence_order) })}>Edit</button><button className="rounded bg-red-100 px-2 py-1 text-xs font-semibold text-red-700" onClick={() => void removeNode(node)}>Remove</button></span></div>)}</div>
+        <div className="mt-4 space-y-2">
+          {nodes.map((node) => (
+            <div key={node.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm">
+              <span>
+                <b>{node.sequence_order}. {node.name}</b> · {node.lat}, {node.lng}
+              </span>
+              <span className="flex gap-2">
+                <button
+                  className="rounded bg-stone-100 px-2 py-1 text-xs font-semibold"
+                  onClick={() =>
+                    setNodeForm({
+                      id: node.id,
+                      name: node.name,
+                      lat: String(node.lat),
+                      lng: String(node.lng),
+                      sequence_order: String(node.sequence_order)
+                    })
+                  }
+                >
+                  Edit
+                </button>
+                <button
+                  className="rounded bg-red-100 px-2 py-1 text-xs font-semibold text-red-700"
+                  onClick={() => void removeNode(node)}
+                >
+                  Remove
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
 function Stat({ label, value, color }: { label: string; value: number; color: string }) {
-  return <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"><span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">{label}</span><div className={`mt-2 text-3xl font-black ${color}`}>{value}</div></div>;
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">{label}</span>
+      <div className={`mt-2 text-3xl font-black ${color}`}>{value}</div>
+    </div>
+  );
 }

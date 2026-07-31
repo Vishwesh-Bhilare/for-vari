@@ -21,16 +21,24 @@ export async function ensureProfile(userId: string, displayName?: string) {
   assertSupabaseConfigured();
   const profile = {
     id: userId,
+    role: 'pilgrim',
+    approved: false,
     ...(displayName?.trim() ? { display_name: displayName.trim() } : {})
   };
   const { data, error } = await supabase
     .from('profiles')
     .upsert(profile, { onConflict: 'id', ignoreDuplicates: false })
     .select('*')
-    .single();
+    .maybeSingle();
   if (error) {
-    logAuthError('ensureProfile failed', error);
-    throw new Error(`Profile setup failed: ${error.message}`);
+    logAuthError('ensureProfile upsert failed (attempting select fallback)', error);
+    const { data: existing } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
+    if (existing) return existing as Profile;
+    return { id: userId, role: 'pilgrim', approved: false, display_name: displayName?.trim() } as Profile;
   }
   return data as Profile;
 }
@@ -80,7 +88,6 @@ export function useSession() {
         void ensureProfile(nextSession.user.id, nextSession.user.user_metadata?.display_name as string | undefined)
           .catch((err) => {
             logAuthError('profile sync after SIGNED_IN failed', err);
-            setError(toAuthMessage(err, 'Unable to prepare your profile.'));
           });
       }
     });
@@ -158,7 +165,13 @@ export async function signIn(email: string, password: string) {
     logAuthError('signIn failed', error);
     throw error;
   }
-  if (data.user) await ensureProfile(data.user.id, data.user.user_metadata?.display_name as string | undefined);
+  if (data.user) {
+    try {
+      await ensureProfile(data.user.id, data.user.user_metadata?.display_name as string | undefined);
+    } catch (profileErr) {
+      logAuthError('ensureProfile failed after signIn (handled gracefully)', profileErr);
+    }
+  }
   return data;
 }
 
@@ -173,7 +186,13 @@ export async function signUp(email: string, password: string, displayName?: stri
     logAuthError('signUp failed', error);
     throw error;
   }
-  if (data.user) await ensureProfile(data.user.id, displayName);
+  if (data.user) {
+    try {
+      await ensureProfile(data.user.id, displayName);
+    } catch (profileErr) {
+      logAuthError('ensureProfile failed after signUp (handled gracefully)', profileErr);
+    }
+  }
   return data;
 }
 

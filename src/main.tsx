@@ -70,6 +70,25 @@ function App() {
   const { application, loading: applicationLoading, error: applicationError } = useVolunteerApplication(currentMemberId);
   
   const [view, setView] = useState<'pilgrim' | 'admin'>(() => location.pathname === '/admin' || location.hash === '#/admin' ? 'admin' : 'pilgrim');
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setView(location.pathname === '/admin' || location.hash === '#/admin' ? 'admin' : 'pilgrim');
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const changeView = (nextView: 'pilgrim' | 'admin') => {
+    setView(nextView);
+    if (nextView === 'admin') {
+      window.location.hash = '#/admin';
+    } else {
+      if (window.location.hash === '#/admin') {
+        window.location.hash = '#/';
+      }
+    }
+  };
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [nodes, setNodes] = useState<NodePoint[]>(seedNodes);
@@ -104,10 +123,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    void supabase.from('nodes').select('*').order('sequence_order').then(({ data }) => { if (data && data.length > 0) void cacheRows('nodes', data).then(() => setNodes(data)); });
+    void supabase.from('nodes').select('*').order('sequence_order').then(({ data }) => {
+      if (data && data.length > 0) {
+        void cacheRows('nodes', data).then(() => setNodes(data));
+      } else {
+        void supabase.from('nodes').upsert(seedNodes).then(() => setNodes(seedNodes));
+      }
+    });
     void supabase.from('profiles').select('*', { count: 'exact', head: true }).then(({ count }) => setRegisteredProfileCount(count ?? 0));
-    const channel = supabase.channel('vari-live')
+    const channel = supabase.channel(`vari-live-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crowd_reports' }, (p) => setReports((r) => [p.new as CrowdReport, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.node_id === p.new.node_id && i.density === p.new.density && i.reported_by === p.new.reported_by))]))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'item_requests' }, (p) => { const row = p.new as ItemRequest; setItems((r) => [row, ...r.filter((i) => i.id !== row.id && !(i.pending && i.item_name === row.item_name && i.requester_id === row.requester_id))]); })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sightings' }, (p) => setSightings((r) => [p.new as Sighting, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.member_id === p.new.member_id && i.node_id === p.new.node_id && i.note === p.new.note))]))
@@ -315,42 +339,53 @@ function App() {
   return (
     <main className="min-h-screen bg-orange-50 text-stone-900">
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
-      <header className="bg-gradient-to-r from-orange-600 to-amber-500 p-5 text-white shadow">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm uppercase tracking-widest text-orange-100">Pandharpur Vari</p>
-            <h1 className="text-3xl font-bold">Offline-first Wari Companion</h1>
-            <p className="text-sm text-orange-100 mt-1">
-              Crowd density, lending, lost & found, and SOS updates sync live with Supabase when online.
-            </p>
+      <header className="bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 p-4 sm:p-5 text-white shadow-md">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-700/60 border border-white/20 text-white font-black text-lg shadow-inner">
+              🚩
+            </div>
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-orange-200">Pandharpur Vari</p>
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white leading-tight">Wari Companion</h1>
+            </div>
+
+            <div className="hidden md:flex items-center gap-2 ml-4">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-950/40 px-3 py-1 text-xs font-semibold text-emerald-200 border border-emerald-500/30">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /> Live Sync
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-950/40 px-3 py-1 text-xs font-semibold text-orange-200 border border-orange-400/30">
+                👤 ID: Active | Role: <span className="capitalize font-bold">{role}</span>
+              </span>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
-              onClick={() => setView('pilgrim')}
-              className={`rounded-full px-4 py-1.5 text-xs font-bold transition-all ${
+              onClick={() => changeView('pilgrim')}
+              className={`rounded-xl px-4 py-2 text-xs font-bold transition-all flex items-center gap-1.5 ${
                 view === 'pilgrim'
-                  ? 'bg-white text-orange-600 shadow'
-                  : 'bg-orange-700/40 text-white hover:bg-orange-700/60'
+                  ? 'bg-white text-orange-700 shadow-md scale-105'
+                  : 'bg-orange-800/40 text-white hover:bg-orange-800/60 border border-white/10'
               }`}
             >
-              Pilgrim Companion
+              <span>🗺️</span> Pilgrim Companion
             </button>
             <button
-              onClick={() => setView('admin')}
-              className={`rounded-full px-4 py-1.5 text-xs font-bold transition-all ${
+              onClick={() => changeView('admin')}
+              className={`rounded-xl px-4 py-2 text-xs font-bold transition-all flex items-center gap-1.5 ${
                 view === 'admin'
-                  ? 'bg-white text-orange-600 shadow'
-                  : 'bg-orange-700/40 text-white hover:bg-orange-700/60'
+                  ? 'bg-white text-orange-700 shadow-md scale-105'
+                  : 'bg-orange-800/40 text-white hover:bg-orange-800/60 border border-white/10'
               }`}
             >
-              Admin Dashboard
+              <span>⚡</span> Admin Panel
             </button>
+
             {session ? (
-              <div className="flex items-center gap-2 rounded-full bg-orange-700/40 px-3 py-1.5 text-xs font-semibold text-white">
+              <div className="flex items-center gap-2 rounded-xl bg-orange-900/40 border border-white/15 px-3 py-2 text-xs font-semibold text-white">
                 <span>{profile?.display_name ?? session.user.email ?? 'Signed in'}</span>
-                <span className="rounded-full bg-white/15 px-2 py-0.5 uppercase tracking-wide">{role}</span>
-                <button type="button" onClick={() => void handleSignOut()} className="font-bold underline decoration-white/60 underline-offset-2">
+                <button type="button" onClick={() => void handleSignOut()} className="font-bold underline decoration-white/60 underline-offset-2 ml-1 text-orange-200 hover:text-white">
                   Sign out
                 </button>
               </div>
@@ -358,7 +393,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => setShowAuthModal(true)}
-                className="rounded-full bg-white px-4 py-1.5 text-xs font-bold text-orange-600 shadow transition-all hover:bg-orange-50"
+                className="rounded-xl bg-white/90 px-4 py-2 text-xs font-bold text-orange-700 shadow hover:bg-white transition-all"
               >
                 Sign in / Register
               </button>
@@ -375,41 +410,20 @@ function App() {
 
       {view === 'admin' ? (
         <div className="p-4 sm:p-6">
-          {!session ? (
-            <div className="flex min-h-[60vh] items-center justify-center">
-              <div className="rounded-2xl bg-white p-8 shadow-xl text-center max-w-md">
-                <p className="text-xl font-semibold text-stone-800">Please sign in as an administrator.</p>
-                <button
-                  type="button"
-                  onClick={() => setShowAuthModal(true)}
-                  className="mt-5 rounded-xl bg-orange-600 px-6 py-2.5 text-sm font-bold text-white shadow hover:bg-orange-700"
-                >
-                  Open admin sign in
-                </button>
-              </div>
-            </div>
-          ) : authLoading || profileLoading ? (
-            <div className="flex min-h-[60vh] items-center justify-center">
-              <div className="rounded-2xl bg-white p-8 shadow-xl text-center max-w-md">
-                <p className="text-xl font-semibold text-stone-800">Restoring administrator session…</p>
-              </div>
-            </div>
-          ) : (
-            <AdminLogin
-              userId={currentMemberId}
-              role={role}
-              activeSosCount={activeSosCount}
-              registeredProfileCount={registeredProfileCount}
-              routeStationCount={nodes.length}
-              nodes={nodes}
-              onNodesChange={setNodes}
-            />
-          )}
+          <AdminLogin
+            userId={currentMemberId}
+            role={role}
+            activeSosCount={activeSosCount}
+            registeredProfileCount={registeredProfileCount}
+            routeStationCount={nodes.length}
+            nodes={nodes}
+            onNodesChange={setNodes}
+          />
         </div>
       ) : (
         <div className="space-y-4">
           {/* Volunteer Application Modal */}
-          {showApplyModal && session && (
+          {showApplyModal && (
             <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-stone-900/60 backdrop-blur-sm p-4">
               <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4">
                 <div className="flex items-center justify-between border-b pb-3">
@@ -423,7 +437,12 @@ function App() {
                     ✕
                   </button>
                 </div>
-                <VolunteerApplication userId={currentMemberId} application={application} nodes={nodes} />
+                <VolunteerApplication
+                  userId={currentMemberId}
+                  application={application}
+                  nodes={nodes}
+                  onRequireAuth={() => setShowAuthModal(true)}
+                />
               </div>
             </div>
           )}
@@ -639,21 +658,12 @@ function App() {
                 </p>
 
                 {/* Apply for Volunteer Button */}
-                {session ? (
-                  <button
-                    onClick={() => setShowApplyModal(true)}
-                    className="w-full rounded-xl bg-orange-600 py-2.5 px-3 text-xs font-bold text-white shadow hover:bg-orange-700 transition-all flex items-center justify-center gap-1.5"
-                  >
-                    ⚡ Apply for Volunteer in Vari
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setShowAuthModal(true)}
-                    className="w-full rounded-xl bg-orange-600 py-2.5 px-3 text-xs font-bold text-white shadow hover:bg-orange-700 transition-all flex items-center justify-center gap-1.5"
-                  >
-                    🔒 Sign in to apply as a volunteer
-                  </button>
-                )}
+                <button
+                  onClick={() => setShowApplyModal(true)}
+                  className="w-full rounded-xl bg-orange-600 py-2.5 px-3 text-xs font-bold text-white shadow hover:bg-orange-700 transition-all flex items-center justify-center gap-1.5"
+                >
+                  ⚡ Apply for Volunteer in Vari
+                </button>
 
                 {session ? (
                   <VolunteerDashboard
