@@ -1,31 +1,88 @@
 import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { isSupabaseConfigured, supabase } from './supabase';
+import { getSupabaseConfigError, isSupabaseConfigured, supabase } from './supabase';
 import type { Profile, VolunteerApplication } from './types';
+
+function toAuthMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+}
+
+function logAuthError(context: string, error: unknown) {
+  console.error(`[auth] ${context}:`, error);
+}
+
+function assertSupabaseConfigured() {
+  const configError = getSupabaseConfigError();
+  if (configError) throw new Error(configError);
+}
+
+export async function ensureProfile(userId: string, displayName?: string) {
+  assertSupabaseConfigured();
+  const profile = {
+    id: userId,
+    ...(displayName?.trim() ? { display_name: displayName.trim() } : {})
+  };
+  const { data, error } = await supabase
+    .from('profiles')
+    .upsert(profile, { onConflict: 'id', ignoreDuplicates: false })
+    .select('*')
+    .single();
+  if (error) {
+    logAuthError('ensureProfile failed', error);
+    throw new Error(`Profile setup failed: ${error.message}`);
+  }
+  return data as Profile;
+}
 
 export function useSession() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
+      setError(getSupabaseConfigError() ?? 'Supabase is not configured.');
       setLoading(false);
       return;
     }
 
     let mounted = true;
-    async function getSession() {
-      const { data } = await supabase.auth.getSession();
-      if (mounted) {
-        setSession(data.session);
-        setLoading(false);
+    async function loadSession() {
+      try {
+        const { data, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        if (data.session) {
+          const { error: userError } = await supabase.auth.getUser();
+          if (userError) throw userError;
+        }
+        if (mounted) {
+          setSession(data.session);
+          setError('');
+        }
+      } catch (err) {
+        logAuthError('loadSession failed', err);
+        if (mounted) {
+          setSession(null);
+          setError(toAuthMessage(err, 'Unable to restore your session. Please sign in again.'));
+        }
+      } finally {
+        if (mounted) setLoading(false);
       }
     }
 
-    void getSession();
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    void loadSession();
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
+      setError('');
       setLoading(false);
+      if (event === 'SIGNED_IN' && nextSession?.user.id) {
+        void ensureProfile(nextSession.user.id, nextSession.user.user_metadata?.display_name as string | undefined)
+          .catch((err) => {
+            logAuthError('profile sync after SIGNED_IN failed', err);
+            setError(toAuthMessage(err, 'Unable to prepare your profile.'));
+          });
+      }
     });
     return () => {
       mounted = false;
@@ -33,84 +90,120 @@ export function useSession() {
     };
   }, []);
 
-  return { session, userId: session?.user.id, loading };
+  return { session, userId: session?.user.id, loading, error };
 }
 
 export function useProfile(userId?: string) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!isSupabaseConfigured || !userId) {
       setProfile(null);
+      setError(isSupabaseConfigured ? '' : getSupabaseConfigError() ?? 'Supabase is not configured.');
       setLoading(false);
       return;
     }
 
     let mounted = true;
+    const profileUserId = userId;
     async function loadProfile() {
       setLoading(true);
-      const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-      if (mounted) {
-        setProfile(data as Profile | null);
-        setLoading(false);
+      try {
+        const { data, error: profileError } = await supabase.from('profiles').select('*').eq('id', profileUserId).maybeSingle();
+        if (profileError) throw profileError;
+        if (!data) {
+          const created = await ensureProfile(profileUserId);
+          if (mounted) setProfile(created);
+          return;
+        }
+        if (mounted) setProfile(data as Profile);
+      } catch (err) {
+        logAuthError('loadProfile failed', err);
+        if (mounted) {
+          setProfile(null);
+          setError(toAuthMessage(err, 'Unable to load your profile.'));
+        }
+      } finally {
+        if (mounted) setLoading(false);
       }
     }
 
     void loadProfile();
     const channel = supabase.channel(`profile-${userId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` }, (payload) => setProfile(payload.new as Profile))
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` }, (payload) => {
+        if (payload.eventType === 'DELETE') setProfile(null);
+        else setProfile(payload.new as Profile);
+      })
+      .subscribe((status, err) => {
+        if (err) {
+          logAuthError('profile realtime subscription failed', err);
+          setError(`Profile live updates failed: ${err.message}`);
+        }
+      });
     return () => {
       mounted = false;
       void supabase.removeChannel(channel);
     };
   }, [userId]);
 
-  return { profile, role: profile?.role ?? 'pilgrim', approved: Boolean(profile?.approved), loading };
+  return { profile, role: profile?.role ?? 'pilgrim', approved: Boolean(profile?.approved), loading, error };
 }
 
 export async function signIn(email: string, password: string) {
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-  if (error) throw error;
+  assertSupabaseConfigured();
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    logAuthError('signIn failed', error);
+    throw error;
+  }
+  if (data.user) await ensureProfile(data.user.id, data.user.user_metadata?.display_name as string | undefined);
   return data;
 }
 
 export async function signUp(email: string, password: string, displayName?: string) {
+  assertSupabaseConfigured();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
+    options: { data: { display_name: displayName?.trim() || null } }
   });
-  if (error) throw error;
-  
-  if (data.user) {
-    // Check if profile already exists
-    const { data: existingProfile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', data.user.id)
-      .maybeSingle();
-    
-    if (!existingProfile) {
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          display_name: displayName ?? null,
-        });
-      if (profileError) throw profileError;
-    }
+  if (error) {
+    logAuthError('signUp failed', error);
+    throw error;
   }
-  
+  if (data.user) await ensureProfile(data.user.id, displayName);
   return data;
 }
 
+export async function sendPasswordReset(email: string) {
+  assertSupabaseConfigured();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}${window.location.pathname}`
+  });
+  if (error) {
+    logAuthError('sendPasswordReset failed', error);
+    throw error;
+  }
+}
+
+export async function updatePassword(password: string) {
+  assertSupabaseConfigured();
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) {
+    logAuthError('updatePassword failed', error);
+    throw error;
+  }
+}
+
 export async function signOut() {
+  assertSupabaseConfigured();
   const { error } = await supabase.auth.signOut();
-  if (error) throw error;
+  if (error) {
+    logAuthError('signOut failed', error);
+    throw error;
+  }
 }
 
 export const isPermanentSession = (session: Session | null) => Boolean(session?.user.email);
@@ -118,10 +211,12 @@ export const isPermanentSession = (session: Session | null) => Boolean(session?.
 export function useVolunteerApplication(userId?: string) {
   const [application, setApplication] = useState<VolunteerApplication | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!isSupabaseConfigured || !userId) {
       setApplication(null);
+      setError(isSupabaseConfigured ? '' : getSupabaseConfigError() ?? 'Supabase is not configured.');
       setLoading(false);
       return;
     }
@@ -130,18 +225,24 @@ export function useVolunteerApplication(userId?: string) {
 
     async function loadApplication() {
       setLoading(true);
-
-      const { data } = await supabase
-        .from('volunteer_applications')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (mounted) {
-        setApplication(data as VolunteerApplication | null);
-        setLoading(false);
+      try {
+        const { data, error: appError } = await supabase
+          .from('volunteer_applications')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (appError) throw appError;
+        if (mounted) setApplication(data as VolunteerApplication | null);
+      } catch (err) {
+        logAuthError('loadVolunteerApplication failed', err);
+        if (mounted) {
+          setApplication(null);
+          setError(toAuthMessage(err, 'Unable to load your volunteer application.'));
+        }
+      } finally {
+        if (mounted) setLoading(false);
       }
     }
 
@@ -151,15 +252,15 @@ export function useVolunteerApplication(userId?: string) {
       .channel(`volunteer-application-${userId}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'volunteer_applications',
-          filter: `user_id=eq.${userId}`,
-        },
+        { event: '*', schema: 'public', table: 'volunteer_applications', filter: `user_id=eq.${userId}` },
         () => void loadApplication()
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (err) {
+          logAuthError('volunteer application realtime subscription failed', err);
+          setError(`Volunteer application live updates failed: ${err.message}`);
+        }
+      });
 
     return () => {
       mounted = false;
@@ -167,5 +268,5 @@ export function useVolunteerApplication(userId?: string) {
     };
   }, [userId]);
 
-  return { application, loading };
+  return { application, loading, error };
 }

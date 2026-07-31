@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { signIn, signUp } from '../auth';
+import { sendPasswordReset, signIn, signUp } from '../auth';
 
 interface AuthModalProps {
   open: boolean;
   onClose: () => void;
 }
 
-type TabType = 'signin' | 'register';
+type TabType = 'signin' | 'register' | 'reset';
 
 export function AuthModal({ open, onClose }: AuthModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('signin');
@@ -17,6 +17,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
   // Sign In state
   const [signInEmail, setSignInEmail] = useState('');
   const [signInPassword, setSignInPassword] = useState('');
+  const [resetEmail, setResetEmail] = useState('');
 
   // Register state
   const [displayName, setDisplayName] = useState('');
@@ -41,6 +42,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
       setSuccess('');
       setSignInEmail('');
       setSignInPassword('');
+      setResetEmail('');
       setDisplayName('');
       setRegisterEmail('');
       setRegisterPassword('');
@@ -127,6 +129,27 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
     }
   };
 
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (!resetEmail.trim()) {
+      setError('Please enter your email address.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await sendPasswordReset(resetEmail.trim());
+      setSuccess('Password reset email sent. Check your inbox for the secure reset link.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Password reset failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!open) return null;
 
   return (
@@ -185,6 +208,20 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
           >
             Register
           </button>
+          <button
+            className={`flex-1 rounded-lg px-4 py-2 text-sm font-bold transition-all ${
+              activeTab === 'reset'
+                ? 'bg-white text-orange-600 shadow-sm'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+            onClick={() => {
+              setActiveTab('reset');
+              setError('');
+              setSuccess('');
+            }}
+          >
+            Reset
+          </button>
         </div>
 
         {/* Error/Success messages */}
@@ -237,6 +274,34 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               disabled={loading}
             >
               {loading ? 'Signing In...' : 'Sign In'}
+            </button>
+          </form>
+        )}
+
+        {/* Password Reset Tab */}
+        {activeTab === 'reset' && (
+          <form className="space-y-4" onSubmit={handlePasswordReset}>
+            <div>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">
+                Account Email
+              </label>
+              <input
+                ref={firstInputRef}
+                type="email"
+                className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
+                placeholder="you@example.com"
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+                disabled={loading}
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              disabled={loading}
+            >
+              {loading ? 'Sending Reset...' : 'Send Password Reset'}
             </button>
           </form>
         )}
