@@ -84,8 +84,9 @@ export function AdminLogin({
     void loadPending();
     const interval = setInterval(() => void loadPending(), 1500);
 
+    const channelName = `admin-volunteer-apps-${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel('admin-volunteer-applications')
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'volunteer_applications' },

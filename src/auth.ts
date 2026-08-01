@@ -158,7 +158,8 @@ export function useProfile(userId?: string) {
     }
 
     void loadProfile();
-    const channel = supabase.channel(`profile-${userId}`)
+    const channelName = `profile-${userId}-${Math.random().toString(36).slice(2)}`;
+    const channel = supabase.channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` }, (payload) => {
         if (payload.eventType === 'DELETE') setProfile(null);
         else setProfile(payload.new as Profile);
