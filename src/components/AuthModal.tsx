@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { sendPasswordReset, signIn, signUp } from '../auth';
+import { useLang } from '../i18n';
 
 interface AuthModalProps {
   open: boolean;
@@ -9,6 +10,7 @@ interface AuthModalProps {
 type TabType = 'signin' | 'register' | 'reset';
 
 export function AuthModal({ open, onClose }: AuthModalProps) {
+  const { t } = useLang();
   const [activeTab, setActiveTab] = useState<TabType>('signin');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -75,19 +77,19 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
     setSuccess('');
 
     if (!signInEmail.trim() || !signInPassword.trim()) {
-      setError('Please fill in all fields.');
+      setError(t('Please fill in all fields.'));
       return;
     }
 
     setLoading(true);
     try {
       await signIn(signInEmail.trim(), signInPassword);
-      setSuccess('Signed in successfully!');
+      setSuccess(t('Signed in successfully!'));
       setTimeout(() => {
         onClose();
       }, 500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign in failed.');
+      setError(err instanceof Error ? err.message : t('Sign in failed.'));
     } finally {
       setLoading(false);
     }
@@ -99,31 +101,31 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
     setSuccess('');
 
     if (!displayName.trim()) {
-      setError('Please enter your display name.');
+      setError(t('Please enter your display name.'));
       return;
     }
     if (!registerEmail.trim()) {
-      setError('Please enter your email address.');
+      setError(t('Please enter your email address.'));
       return;
     }
     if (registerPassword.length < 6) {
-      setError('Password must be at least 6 characters.');
+      setError(t('Password must be at least 6 characters.'));
       return;
     }
     if (registerPassword !== confirmPassword) {
-      setError('Passwords do not match.');
+      setError(t('Passwords do not match.'));
       return;
     }
 
     setLoading(true);
     try {
       await signUp(registerEmail.trim(), registerPassword, displayName.trim());
-      setSuccess('Account created successfully. Please check your email if email confirmation is enabled.');
+      setSuccess(t('Account created successfully. Please check your email if email confirmation is enabled.'));
       setTimeout(() => {
         onClose();
       }, 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed.');
+      setError(err instanceof Error ? err.message : t('Registration failed.'));
     } finally {
       setLoading(false);
     }
@@ -135,16 +137,16 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
     setSuccess('');
 
     if (!resetEmail.trim()) {
-      setError('Please enter your email address.');
+      setError(t('Please enter your email address.'));
       return;
     }
 
     setLoading(true);
     try {
       await sendPasswordReset(resetEmail.trim());
-      setSuccess('Password reset email sent. Check your inbox for the secure reset link.');
+      setSuccess(t('Password reset email sent. Check your inbox for the secure reset link.'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Password reset failed.');
+      setError(err instanceof Error ? err.message : t('Password reset failed.'));
     } finally {
       setLoading(false);
     }
@@ -175,7 +177,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
 
         {/* Title */}
         <h2 id="auth-modal-title" className="text-2xl font-extrabold text-stone-900 mb-6">
-          Welcome
+          {t('Welcome')}
         </h2>
 
         {/* Tabs */}
@@ -192,7 +194,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               setSuccess('');
             }}
           >
-            Sign In
+            {t('Sign In')}
           </button>
           <button
             className={`flex-1 rounded-lg px-4 py-2 text-sm font-bold transition-all ${
@@ -206,7 +208,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               setSuccess('');
             }}
           >
-            Register
+            {t('Register')}
           </button>
           <button
             className={`flex-1 rounded-lg px-4 py-2 text-sm font-bold transition-all ${
@@ -220,7 +222,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               setSuccess('');
             }}
           >
-            Reset
+            {t('Reset')}
           </button>
         </div>
 
@@ -241,7 +243,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
           <form className="space-y-4" onSubmit={handleSignIn}>
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Email
+                {t('Email')}
               </label>
               <input
                 ref={firstInputRef}
@@ -256,7 +258,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Password
+                {t('Password')}
               </label>
               <input
                 type="password"
@@ -273,7 +275,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               disabled={loading}
             >
-              {loading ? 'Signing In...' : 'Sign In'}
+              {loading ? t('Signing In...') : t('Sign In')}
             </button>
           </form>
         )}
@@ -283,7 +285,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
           <form className="space-y-4" onSubmit={handlePasswordReset}>
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Account Email
+                {t('Account Email')}
               </label>
               <input
                 ref={firstInputRef}
@@ -301,7 +303,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               disabled={loading}
             >
-              {loading ? 'Sending Reset...' : 'Send Password Reset'}
+              {loading ? t('Sending Reset...') : t('Send Password Reset')}
             </button>
           </form>
         )}
@@ -311,13 +313,13 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
           <form className="space-y-4" onSubmit={handleRegister}>
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Display Name
+                {t('Display Name')}
               </label>
               <input
                 ref={firstInputRef}
                 type="text"
                 className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
-                placeholder="Your name"
+                placeholder={t('Your name')}
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 disabled={loading}
@@ -326,7 +328,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Email
+                {t('Email')}
               </label>
               <input
                 type="email"
@@ -340,12 +342,12 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Password
+                {t('Password')}
               </label>
               <input
                 type="password"
                 className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
-                placeholder="Minimum 6 characters"
+                placeholder={t('Minimum 6 characters')}
                 value={registerPassword}
                 onChange={(e) => setRegisterPassword(e.target.value)}
                 disabled={loading}
@@ -355,12 +357,12 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Confirm Password
+                {t('Confirm Password')}
               </label>
               <input
                 type="password"
                 className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
-                placeholder="Confirm your password"
+                placeholder={t('Confirm your password')}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={loading}
@@ -372,7 +374,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               disabled={loading}
             >
-              {loading ? 'Creating Account...' : 'Create Account'}
+              {loading ? t('Creating Account...') : t('Create Account')}
             </button>
           </form>
         )}

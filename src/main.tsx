@@ -10,6 +10,7 @@ import type { CrowdReport, Density, ItemRequest, NodePoint, Profile, Sighting, S
 import { VolunteerApplication } from './components/VolunteerApplication';
 import { AdminLogin } from './pages/AdminLogin';
 import { AuthModal } from './components/AuthModal';
+import { LangProvider, LangToggle, useLang } from './i18n';
 
 const seedNodes: NodePoint[] = [
   { id: '11111111-1111-4111-8111-111111111111', name: 'Dehu', lat: 18.7187, lng: 73.7661, sequence_order: 1 },
@@ -42,6 +43,15 @@ function formatDistance(meters?: number) {
   return `~${(meters / 1_000).toFixed(meters < 10_000 ? 1 : 0)}km away`;
 }
 
+function useFormatDistance() {
+  const { t } = useLang();
+  return (meters?: number) => {
+    if (meters === undefined) return t('distance unknown');
+    if (meters < 1_000) return `~${Math.max(10, Math.round(meters / 10) * 10)}m ${t('away')}`;
+    return `~${(meters / 1_000).toFixed(meters < 10_000 ? 1 : 0)}km ${t('away')}`;
+  };
+}
+
 function isExpiredOpenRequest(item: ItemRequest) {
   if ((item.status ?? 'open') !== 'open' || !item.created_at) return false;
   return Date.now() - new Date(item.created_at).getTime() > REQUEST_EXPIRY_MS;
@@ -65,6 +75,7 @@ function usePosition() {
 }
 
 function App() {
+  const { t } = useLang();
   const { session, userId: currentMemberId, loading: authLoading, error: authError } = useSession();
   const { profile, role, approved, loading: profileLoading, error: profileError } = useProfile(currentMemberId);
   const { application, loading: applicationLoading, error: applicationError } = useVolunteerApplication(currentMemberId);
@@ -156,10 +167,10 @@ function App() {
     reports.forEach((r) => !latest.has(r.node_id) && latest.set(r.node_id, r.density));
     markerLayerRef.current?.clearLayers();
     nodes.forEach((node) => L.circleMarker([node.lat, node.lng], { radius: 11, color: '#7c2d12', fillColor: densityClass[latest.get(node.id) ?? 'unknown'], fillOpacity: 0.9 })
-      .bindPopup(`${node.name}: ${latest.get(node.id) ?? 'no data'} crowd`).addTo(markerLayerRef.current!));
+      .bindPopup(`${node.name}: ${t(latest.get(node.id) ?? 'no data')} ${t('crowd')}`).addTo(markerLayerRef.current!));
     routeRef.current?.remove();
     routeRef.current = L.polyline(nodes.map((n) => [n.lat, n.lng] as L.LatLngTuple), { color: '#ea580c', weight: 4 }).addTo(mapRef.current);
-  }, [view, nodes, reports]);
+  }, [view, nodes, reports, t]);
 
   const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
   const nearestNodeId = useMemo(() => nodes.map((node) => ({ node, distance: getDistanceMeters(position?.coords, node.lat, node.lng) })).sort((a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY))[0]?.node.id ?? nodes[0]?.id ?? '', [nodes, position?.coords]);
@@ -187,20 +198,20 @@ function App() {
 
   async function reportDensity(density: Density) {
     if (!session) {
-      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      setNotice({ type: 'error', text: t('Please sign in to use this feature.') });
       return;
     }
     if (density === 'unknown' || !currentMemberId || !selectedNode) {
-      setNotice({ type: 'error', text: 'Choose a route node before reporting crowd density.' });
+      setNotice({ type: 'error', text: t('Choose a route node before reporting crowd density.') });
       return;
     }
     const result = await queueWrite<CrowdReport>('crowd_reports', { node_id: selectedNode, density, reported_by: currentMemberId });
     setReports((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
-    setNotice({ type: 'success', text: 'Crowd density report saved.' });
+    setNotice({ type: 'success', text: t('Crowd density report saved.') });
   }
   async function requestItem() {
     if (!session) {
-      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      setNotice({ type: 'error', text: t('Please sign in to use this feature.') });
       return;
     }
     if (!itemName.trim() || !currentMemberId || myActiveRequest) return;
@@ -214,7 +225,7 @@ function App() {
   }
   async function acceptItem(item: ItemRequest) {
     if (!session) {
-      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      setNotice({ type: 'error', text: t('Please sign in to use this feature.') });
       return;
     }
     if (item.requester_id === currentMemberId) return;
@@ -222,37 +233,37 @@ function App() {
   }
   async function completeItem(item: ItemRequest) {
     if (!session) {
-      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      setNotice({ type: 'error', text: t('Please sign in to use this feature.') });
       return;
     }
     await updateItemRequest(item, { status: 'completed' });
   }
   async function cancelItem(item: ItemRequest) {
     if (!session) {
-      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      setNotice({ type: 'error', text: t('Please sign in to use this feature.') });
       return;
     }
     await updateItemRequest(item, { status: 'cancelled' });
   }
   async function unacceptItem(item: ItemRequest) {
     if (!session) {
-      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      setNotice({ type: 'error', text: t('Please sign in to use this feature.') });
       return;
     }
     await updateItemRequest(item, { status: 'open', accepted_by: null, accepted_at: null, accepter_lat: null, accepter_lng: null });
   }
   async function registerGroup() {
     if (!session) {
-      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      setNotice({ type: 'error', text: t('Please sign in to use this feature.') });
       return;
     }
     if (!registration.name.trim() || !currentMemberId || !isSupabaseConfigured) {
-      setNotice({ type: 'error', text: 'Please sign in and enter a name before registering a group.' });
+      setNotice({ type: 'error', text: t('Please sign in and enter a name before registering a group.') });
       return;
     }
     const normalizedGroupCode = registration.groupCode.trim();
     if (!normalizedGroupCode) {
-      setNotice({ type: 'error', text: 'Enter or generate a family group code.' });
+      setNotice({ type: 'error', text: t('Enter or generate a family group code.') });
       return;
     }
 
@@ -278,7 +289,7 @@ function App() {
       const path = `${groupId}/${currentMemberId}-${registration.photo.name}`;
       const { data, error } = await supabase.storage.from('member-photos').upload(path, registration.photo, { upsert: true });
       if (error) {
-        setNotice({ type: 'error', text: `Photo upload failed: ${error.message}` });
+        setNotice({ type: 'error', text: `${t('Photo upload failed:')} ${error.message}` });
         return;
       }
       if (data) photo_url = supabase.storage.from('member-photos').getPublicUrl(data.path).data.publicUrl;
@@ -290,37 +301,37 @@ function App() {
       return;
     }
     setGroupCode(normalizedGroupCode); setFamilyCode(normalizedGroupCode); setRegisteredGroup(normalizedGroupCode);
-    setNotice({ type: 'success', text: existing.data?.id ? 'Joined existing group.' : 'Created new group.' });
+    setNotice({ type: 'success', text: existing.data?.id ? t('Joined existing group.') : t('Created new group.') });
   }
   async function checkIn() {
     if (!session) {
-      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      setNotice({ type: 'error', text: t('Please sign in to use this feature.') });
       return;
     }
     if (!currentMemberId || !checkInNode || !groupCode.trim()) {
-      setNotice({ type: 'error', text: 'Choose a check-in node and enter your family group code.' });
+      setNotice({ type: 'error', text: t('Choose a check-in node and enter your family group code.') });
       return;
     }
     try {
-      const result = await queueWrite<Sighting>('sightings', { member_id: currentMemberId, node_id: checkInNode, reported_by: currentMemberId, group_code: groupCode.trim(), note: `Self check-in for ${groupCode.trim()}` });
+      const result = await queueWrite<Sighting>('sightings', { member_id: currentMemberId, node_id: checkInNode, reported_by: currentMemberId, group_code: groupCode.trim(), note: `${t('Self check-in for')} ${groupCode.trim()}` });
       setSightings((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
-      setNotice({ type: 'success', text: 'Check-in saved.' });
+      setNotice({ type: 'success', text: t('Check-in saved.') });
     } catch (error) {
-      setNotice({ type: 'error', text: error instanceof Error ? error.message : 'Check-in failed.' });
+      setNotice({ type: 'error', text: error instanceof Error ? error.message : t('Check-in failed.') });
     }
   }
   async function sendSos() {
     if (!session) {
-      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+      setNotice({ type: 'error', text: t('Please sign in to use this feature.') });
       return;
     }
     if (!currentMemberId || !checkInNode) return;
     try {
       const result = await queueWrite<SosAlert>('sos_alerts', { member_id: currentMemberId, node_id: checkInNode, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'active' }, 'sos');
       setSosAlerts((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
-      setNotice({ type: 'success', text: 'SOS sent.' });
+      setNotice({ type: 'success', text: t('SOS sent.') });
     } catch (error) {
-      setNotice({ type: 'error', text: error instanceof Error ? error.message : 'SOS failed.' });
+      setNotice({ type: 'error', text: error instanceof Error ? error.message : t('SOS failed.') });
     }
   }
 
@@ -330,11 +341,13 @@ function App() {
     try {
       await signOut();
       setShowApplyModal(false);
-      setNotice({ type: 'success', text: 'Signed out successfully.' });
+      setNotice({ type: 'success', text: t('Signed out successfully.') });
     } catch (error) {
-      setNotice({ type: 'error', text: error instanceof Error ? error.message : 'Sign out failed.' });
+      setNotice({ type: 'error', text: error instanceof Error ? error.message : t('Sign out failed.') });
     }
   }
+
+  const fmtDist = useFormatDistance();
 
   return (
     <main className="min-h-screen bg-orange-50 text-stone-900">
@@ -346,21 +359,22 @@ function App() {
               🚩
             </div>
             <div>
-              <p className="text-[10px] font-extrabold uppercase tracking-widest text-orange-200">Pandharpur Vari</p>
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white leading-tight">Wari Companion</h1>
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-orange-200">{t('Pandharpur Vari')}</p>
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white leading-tight">{t('Wari Companion')}</h1>
             </div>
 
             <div className="hidden md:flex items-center gap-2 ml-4">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-950/40 px-3 py-1 text-xs font-semibold text-emerald-200 border border-emerald-500/30">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /> Live Sync
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /> {t('Live Sync')}
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-950/40 px-3 py-1 text-xs font-semibold text-orange-200 border border-orange-400/30">
-                👤 ID: Active | Role: <span className="capitalize font-bold">{role}</span>
+                👤 {t('ID: Active | Role:')} <span className="capitalize font-bold">{role}</span>
               </span>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <LangToggle />
             <button
               onClick={() => changeView('pilgrim')}
               className={`rounded-xl px-4 py-2 text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -369,7 +383,7 @@ function App() {
                   : 'bg-orange-800/40 text-white hover:bg-orange-800/60 border border-white/10'
               }`}
             >
-              <span>🗺️</span> Pilgrim Companion
+              <span>🗺️</span> {t('Pilgrim Companion')}
             </button>
             <button
               onClick={() => changeView('admin')}
@@ -379,14 +393,14 @@ function App() {
                   : 'bg-orange-800/40 text-white hover:bg-orange-800/60 border border-white/10'
               }`}
             >
-              <span>⚡</span> Admin Panel
+              <span>⚡</span> {t('Admin Panel')}
             </button>
 
             {session ? (
               <div className="flex items-center gap-2 rounded-xl bg-orange-900/40 border border-white/15 px-3 py-2 text-xs font-semibold text-white">
-                <span>{profile?.display_name ?? session.user.email ?? 'Signed in'}</span>
+                <span>{profile?.display_name ?? session.user.email ?? t('Signed in')}</span>
                 <button type="button" onClick={() => void handleSignOut()} className="font-bold underline decoration-white/60 underline-offset-2 ml-1 text-orange-200 hover:text-white">
-                  Sign out
+                  {t('Sign out')}
                 </button>
               </div>
             ) : (
@@ -395,7 +409,7 @@ function App() {
                 onClick={() => setShowAuthModal(true)}
                 className="rounded-xl bg-white/90 px-4 py-2 text-xs font-bold text-orange-700 shadow hover:bg-white transition-all"
               >
-                Sign in / Register
+                {t('Sign in / Register')}
               </button>
             )}
           </div>
@@ -429,7 +443,7 @@ function App() {
               <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4">
                 <div className="flex items-center justify-between border-b pb-3">
                   <h3 className="text-lg font-bold text-stone-900 flex items-center gap-2">
-                    <span>🙋‍♂️</span> Volunteer Application for Wari
+                    <span>🙋‍♂️</span> {t('Volunteer Application for Wari')}
                   </h3>
                   <button
                     onClick={() => setShowApplyModal(false)}
@@ -453,14 +467,14 @@ function App() {
             onClick={sendSos}
             className="fixed bottom-5 right-5 z-[1000] rounded-full bg-red-600 px-6 py-4 font-bold text-white shadow-xl hover:bg-red-700 active:scale-95 transition-all"
           >
-            SOS
+            {t('SOS')}
           </button>
 
           {/* Map & Crowd Density Section */}
           <section className="grid gap-4 p-4 lg:grid-cols-[2fr_1fr]">
             <div id="map" className="h-[520px] rounded-3xl border-4 border-white shadow" />
             <aside className="space-y-4 rounded-3xl bg-white p-4 shadow">
-              <h2 className="text-xl font-bold">Report crowd density</h2>
+              <h2 className="text-xl font-bold">{t('Report crowd density')}</h2>
               <select
                 className="w-full rounded border p-3"
                 value={selectedNode}
@@ -481,7 +495,7 @@ function App() {
                     onClick={() => void reportDensity(d)}
                     key={d}
                   >
-                    {d}
+                    {t(d)}
                   </button>
                 ))}
               </div>
@@ -491,7 +505,7 @@ function App() {
                   <li className="flex justify-between border-b py-2 text-sm" key={node.id}>
                     <span>{node.name}</span>
                     <b className={density === 'unknown' ? 'text-slate-500' : 'capitalize'}>
-                      {density === 'unknown' ? 'no data yet' : density}
+                      {density === 'unknown' ? t('no data yet') : t(density)}
                     </b>
                   </li>
                 ))}
@@ -502,17 +516,17 @@ function App() {
           {/* 3-Column Bottom Panels matching screenshot */}
           <section className="grid gap-4 p-4 md:grid-cols-3">
             {/* Column 1: Peer item lending */}
-            <Panel title="Peer item lending">
+            <Panel title={t('Peer item lending')}>
               <div className="mb-2 flex flex-wrap gap-2">
                 {COMMON_ITEM_CHIPS.map((chip) => (
                   <button key={chip} type="button" className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 hover:bg-orange-100" onClick={() => setItemName(chip)}>
-                    {chip}
+                    {t(chip)}
                   </button>
                 ))}
               </div>
               {myActiveRequest && (
                 <p className="mb-2 rounded bg-amber-50 p-2 text-xs font-semibold text-amber-800">
-                  You already have an active request for {myActiveRequest.item_name}. Complete or cancel it before creating another.
+                  {t('You already have an active request for')} {myActiveRequest.item_name}{t('. Complete or cancel it before creating another.')}
                 </p>
               )}
               <div className="flex gap-2">
@@ -520,14 +534,14 @@ function App() {
                   className="min-w-0 flex-1 rounded border p-2 text-sm"
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
-                  placeholder="Need: blanket, water..."
+                  placeholder={t('Need: blanket, water...')}
                 />
                 <button
                   className="rounded bg-orange-600 px-3 text-white text-sm font-semibold hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300"
                   disabled={Boolean(myActiveRequest)}
                   onClick={() => void requestItem()}
                 >
-                  Request
+                  {t('Request')}
                 </button>
               </div>
               {sortedPrimaryItems.slice(0, 5).map(({ item: i, distance }, idx) => {
@@ -536,65 +550,64 @@ function App() {
                 return (
                 <div className="border-b py-2 text-sm text-stone-700" key={i.id ?? idx}>
                   <p>
-                    {i.item_name} · <span className="capitalize">{i.status ?? 'open'}</span> · {formatDistance(distance)}{' '}
-                    {i.pending && '· pending'}
+                    {i.item_name} · <span className="capitalize">{t(i.status ?? 'open')}</span> · {fmtDist(distance)}{' '}
+                    {i.pending && `· ${t('pending')}`}
                   </p>
                   {(i.status ?? 'open') === 'open' && i.requester_id === currentMemberId && (
-                    <button className="mt-1 rounded bg-stone-600 px-2 py-1 text-xs text-white font-semibold shadow" onClick={() => void cancelItem(i)}>Cancel</button>
+                    <button className="mt-1 rounded bg-stone-600 px-2 py-1 text-xs text-white font-semibold shadow" onClick={() => void cancelItem(i)}>{t('Cancel')}</button>
                   )}
                   {(i.status ?? 'open') === 'open' && i.requester_id !== currentMemberId && (
-                    <button className="mt-1 rounded bg-green-600 px-2 py-1 text-xs text-white font-semibold shadow" onClick={() => void acceptItem(i)}>Accept</button>
+                    <button className="mt-1 rounded bg-green-600 px-2 py-1 text-xs text-white font-semibold shadow" onClick={() => void acceptItem(i)}>{t('Accept')}</button>
                   )}
                   {i.status === 'accepted' && (i.requester_id === currentMemberId || i.accepted_by === currentMemberId) && (
                     <div className="mt-1 space-y-1 rounded bg-slate-100 p-2 text-xs">
-                      <p>{requesterMapUrl ? <a className="font-semibold text-blue-700 underline" href={requesterMapUrl} target="_blank" rel="noreferrer">Navigate to requester</a> : 'Requester location unavailable'}</p>
-                      <p>{accepterMapUrl ? <a className="font-semibold text-blue-700 underline" href={accepterMapUrl} target="_blank" rel="noreferrer">Navigate to accepter</a> : 'Accepter location unavailable'}</p>
+                      <p>{requesterMapUrl ? <a className="font-semibold text-blue-700 underline" href={requesterMapUrl} target="_blank" rel="noreferrer">{t('Navigate to requester')}</a> : t('Requester location unavailable')}</p>
+                      <p>{accepterMapUrl ? <a className="font-semibold text-blue-700 underline" href={accepterMapUrl} target="_blank" rel="noreferrer">{t('Navigate to accepter')}</a> : t('Accepter location unavailable')}</p>
                       <div className="flex flex-wrap gap-2 pt-1">
-                        <button className="rounded bg-green-700 px-2 py-1 text-white font-semibold shadow" onClick={() => void completeItem(i)}>Mark completed</button>
-                        {i.accepted_by === currentMemberId && <button className="rounded bg-amber-600 px-2 py-1 text-white font-semibold shadow" onClick={() => void unacceptItem(i)}>Can't make it</button>}
+                        <button className="rounded bg-green-700 px-2 py-1 text-white font-semibold shadow" onClick={() => void completeItem(i)}>{t('Mark completed')}</button>
+                        {i.accepted_by === currentMemberId && <button className="rounded bg-amber-600 px-2 py-1 text-white font-semibold shadow" onClick={() => void unacceptItem(i)}>{t("Can't make it")}</button>}
                       </div>
                     </div>
                   )}
                 </div>
-              );})}
-              {recentActivityItems.length > 0 && (
+              );})}{recentActivityItems.length > 0 && (
                 <details className="mt-3 text-sm text-stone-600">
-                  <summary className="cursor-pointer font-semibold">Recent completed, cancelled, or expired activity</summary>
+                  <summary className="cursor-pointer font-semibold">{t('Recent completed, cancelled, or expired activity')}</summary>
                   {recentActivityItems.slice(0, 5).map((i, idx) => (
-                    <p className="border-b py-2 text-xs" key={i.id ?? idx}>{i.item_name} · {isExpiredOpenRequest(i) ? 'expired' : i.status}</p>
+                    <p className="border-b py-2 text-xs" key={i.id ?? idx}>{i.item_name} · {isExpiredOpenRequest(i) ? t('expired') : t(i.status ?? 'open')}</p>
                   ))}
                 </details>
               )}
             </Panel>
 
             {/* Column 2: Lost & found */}
-            <Panel title="Lost & found">
+            <Panel title={t('Lost & found')}>
               <div className="mb-3 space-y-2 text-sm">
                 <input
                   className="w-full rounded border p-2"
-                  placeholder="Name"
+                  placeholder={t('Name')}
                   value={registration.name}
                   onChange={(e) => setRegistration({ ...registration, name: e.target.value })}
                 />
                 <input
                   className="w-full rounded border p-2"
-                  placeholder="Phone"
+                  placeholder={t('Phone')}
                   value={registration.phone}
                   onChange={(e) => setRegistration({ ...registration, phone: e.target.value })}
                 />
                 <input
                   className="w-full rounded border p-2"
-                  placeholder="Emergency contact"
+                  placeholder={t('Emergency contact')}
                   value={registration.emergency}
                   onChange={(e) => setRegistration({ ...registration, emergency: e.target.value })}
                 />
                 <input
                   className="w-full rounded border p-2"
                   value={registration.groupCode}
-                  placeholder="Enter or generate a family group code"
+                  placeholder={t('Enter or generate a family group code')}
                   onChange={(e) => setRegistration({ ...registration, groupCode: e.target.value })}
                 />
-                <button type="button" className="w-full rounded bg-stone-100 px-3 py-2 text-stone-700 text-sm font-semibold shadow" onClick={() => setRegistration({ ...registration, groupCode: makeGroupCode() })}>Generate group code</button>
+                <button type="button" className="w-full rounded bg-stone-100 px-3 py-2 text-stone-700 text-sm font-semibold shadow" onClick={() => setRegistration({ ...registration, groupCode: makeGroupCode() })}>{t('Generate group code')}</button>
                 <input
                   className="w-full rounded border p-2"
                   type="file"
@@ -605,57 +618,57 @@ function App() {
                   className="w-full rounded bg-orange-600 px-3 py-2 text-white text-sm font-semibold shadow"
                   onClick={() => void registerGroup()}
                 >
-                  Register group
+                  {t('Register group')}
                 </button>
                 {registeredGroup && (
-                  <p className="text-sm font-semibold text-green-700">Share code: {registeredGroup}</p>
+                  <p className="text-sm font-semibold text-green-700">{t('Share code:')} {registeredGroup}</p>
                 )}
               </div>
               <input
                 className="mb-2 w-full rounded border p-2 text-sm"
                 value={groupCode}
                 onChange={(e) => setGroupCode(e.target.value)}
-                placeholder="Enter your family's group code"
+                placeholder={t("Enter your family's group code")}
               />
-              <label className="mb-2 block text-xs font-semibold text-stone-700">Check-in location
+              <label className="mb-2 block text-xs font-semibold text-stone-700">{t('Check-in location')}
                 <select className="mt-1 w-full rounded border p-2 text-sm" value={checkInNode} onChange={(e) => setCheckInNode(e.target.value)}>
-                  {nodes.map((node) => <option key={node.id} value={node.id}>{node.id === nearestNodeId ? `${node.name} (nearest)` : node.name}</option>)}
+                  {nodes.map((node) => <option key={node.id} value={node.id}>{node.id === nearestNodeId ? `${node.name} ${t('(nearest)')}` : node.name}</option>)}
                 </select>
               </label>
               <button
                 className="w-full rounded bg-amber-600 px-3 py-2 text-white text-sm font-semibold shadow"
                 onClick={() => void checkIn()}
               >
-                Check in at check-in location
+                {t('Check in at check-in location')}
               </button>
               <input
                 className="mt-3 w-full rounded border p-2 text-sm"
                 value={familyCode}
                 onChange={(e) => setFamilyCode(e.target.value)}
-                placeholder="Family view group code"
+                placeholder={t('Family view group code')}
               />
               {familyProfiles.length > 0 && (
                 <div className="mt-3 space-y-2 rounded-xl bg-stone-50 p-3">
                   {familyProfiles.map((member) => (
                     <div key={member.id} className="flex items-center gap-2 text-sm">
                       {member.photo_url ? <img src={member.photo_url} alt="" className="h-8 w-8 rounded-full object-cover" /> : <span className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 text-xs font-bold text-orange-700">{(member.display_name ?? '?').slice(0, 1)}</span>}
-                      <span>{member.display_name ?? 'Unnamed family member'}</span>
+                      <span>{member.display_name ?? t('Unnamed family member')}</span>
                     </div>
                   ))}
                 </div>
               )}
               {familySightings.slice(0, 5).map((s, idx) => (
                 <p className="border-b py-2 text-sm" key={s.id ?? idx}>
-                  {s.note ?? 'Sighting'} {s.pending && '· pending'}
+                  {s.note ?? t('Sighting')} {s.pending && `· ${t('pending')}`}
                 </p>
               ))}
             </Panel>
 
             {/* Column 3: Volunteer dashboard & Apply for Volunteer */}
-            <Panel title="Volunteer dashboard">
+            <Panel title={t('Volunteer dashboard')}>
               <div className="space-y-3 text-sm">
                 <p className="text-xs text-stone-500">
-                  Auth-gated in production; demo shows live active alerts, sightings, and requests.
+                  {t('Auth-gated in production; demo shows live active alerts, sightings, and requests.')}
                 </p>
 
                 {/* Apply for Volunteer Button */}
@@ -663,7 +676,7 @@ function App() {
                   onClick={() => setShowApplyModal(true)}
                   className="w-full rounded-xl bg-orange-600 py-2.5 px-3 text-xs font-bold text-white shadow hover:bg-orange-700 transition-all flex items-center justify-center gap-1.5"
                 >
-                  ⚡ Apply for Volunteer in Vari
+                  ⚡ {t('Apply for Volunteer in Vari')}
                 </button>
 
                 {session ? (
@@ -681,7 +694,7 @@ function App() {
                   />
                 ) : (
                   <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-4 text-center">
-                    <p className="font-medium text-amber-800">Sign in to access volunteer features.</p>
+                    <p className="font-medium text-amber-800">{t('Sign in to access volunteer features.')}</p>
                   </div>
                 )}
               </div>
@@ -694,6 +707,7 @@ function App() {
 }
 
 function VolunteerDashboard({ session, profile, role, approved, loading, nodes, sosAlerts, sightings, setSosAlerts, setSightings }: { session: ReturnType<typeof useSession>['session']; profile: Profile | null; role: string; approved: boolean; loading: boolean; nodes: NodePoint[]; sosAlerts: SosAlert[]; sightings: Sighting[]; setSosAlerts: React.Dispatch<React.SetStateAction<SosAlert[]>>; setSightings: React.Dispatch<React.SetStateAction<Sighting[]>> }) {
+  const { t } = useLang();
   const [scope, setScope] = useState(profile?.node_id ?? 'all');
   useEffect(() => setScope(profile?.node_id ?? 'all'), [profile?.node_id]);
   const permitted = (role === 'volunteer' || role === 'admin') && approved;
@@ -716,31 +730,31 @@ function VolunteerDashboard({ session, profile, role, approved, loading, nodes, 
     }
   }
 
-  if (loading) return <p className="text-sm text-stone-500">Loading access...</p>;
-  if (!permitted) return <p className="text-sm text-stone-500">Approved volunteer or admin access is required.</p>;
+  if (loading) return <p className="text-sm text-stone-500">{t('Loading access...')}</p>;
+  if (!permitted) return <p className="text-sm text-stone-500">{t('Approved volunteer or admin access is required.')}</p>;
 
   return (
     <div className="space-y-3 text-sm">
-      <label className="block font-semibold">Node filter
+      <label className="block font-semibold">{t('Node filter')}
         <select className="mt-1 w-full rounded-xl border p-2 text-sm font-semibold" value={scope} onChange={(e) => setScope(e.target.value)}>
-          <option value="all">All nodes</option>
+          <option value="all">{t('All nodes')}</option>
           {nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
         </select>
       </label>
       <div>
-        <h3 className="font-bold">SOS alerts</h3>
+        <h3 className="font-bold">{t('SOS alerts')}</h3>
         {scopedAlerts.slice(0, 5).map((s, idx) => (
           <div className="border-b py-2 text-red-700" key={s.id ?? idx}>
-            {s.status} SOS near {nodes.find((n) => n.id === s.node_id)?.name ?? s.node_id}{' '}
-            {s.status === 'active' && <button className="ml-2 rounded-lg bg-red-600 px-3 py-1 text-white text-xs font-bold shadow" onClick={() => void resolveSos(s)}>Resolve</button>}
+            {t(s.status)} {t('SOS near')} {nodes.find((n) => n.id === s.node_id)?.name ?? s.node_id}{' '}
+            {s.status === 'active' && <button className="ml-2 rounded-lg bg-red-600 px-3 py-1 text-white text-xs font-bold shadow" onClick={() => void resolveSos(s)}>{t('Resolve')}</button>}
           </div>
         ))}
       </div>
       <div>
-        <h3 className="font-bold">Sightings</h3>
+        <h3 className="font-bold">{t('Sightings')}</h3>
         {scopedSightings.slice(0, 5).map((s, idx) => (
           <div className="border-b py-2" key={s.id ?? idx}>
-            {s.note ?? 'Sighting'} {s.verified ? '· verified' : <button className="ml-2 rounded-lg bg-green-600 px-3 py-1 text-white text-xs font-bold shadow" onClick={() => void verifySighting(s)}>Verify</button>}
+            {s.note ?? t('Sighting')} {s.verified ? `· ${t('verified')}` : <button className="ml-2 rounded-lg bg-green-600 px-3 py-1 text-white text-xs font-bold shadow" onClick={() => void verifySighting(s)}>{t('Verify')}</button>}
           </div>
         ))}
       </div>
@@ -757,4 +771,8 @@ function Panel({ title, children }: React.PropsWithChildren<{ title: string }>) 
   );
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(
+  <LangProvider>
+    <App />
+  </LangProvider>
+);

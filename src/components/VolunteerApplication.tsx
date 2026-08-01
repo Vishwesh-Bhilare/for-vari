@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { cacheRows } from '../db';
 import { isSupabaseConfigured, supabase } from '../supabase';
 import type { NodePoint, VolunteerApplication as VolunteerApplicationRecord } from '../types';
+import { useLang } from '../i18n';
 
 type ApplicationForm = {
   full_name: string;
@@ -36,6 +37,7 @@ export function VolunteerApplication({
   nodes?: NodePoint[];
   onRequireAuth?: () => void;
 }) {
+  const { t } = useLang();
   const [form, setForm] = useState<ApplicationForm>(emptyForm);
   const [message, setMessage] = useState('');
   const [needsAuth, setNeedsAuth] = useState(false);
@@ -46,32 +48,32 @@ export function VolunteerApplication({
     if (submitting) return;
     
     if (!form.full_name.trim()) {
-      setMessage('Please enter your full name.');
+      setMessage(t('Please enter your full name.'));
       return;
     }
     
     if (!form.phone.trim()) {
-      setMessage('Please enter your phone number.');
+      setMessage(t('Please enter your phone number.'));
       return;
     }
     
     if (!form.emergency_contact.trim()) {
-      setMessage('Please enter an emergency contact number.');
+      setMessage(t('Please enter an emergency contact number.'));
       return;
     }
     
     if (!form.preferred_station) {
-      setMessage('Please select a preferred station.');
+      setMessage(t('Please select a preferred station.'));
       return;
     }
     
     if (!form.age || Number(form.age) < 13) {
-      setMessage('Please enter a valid age (minimum 13 years).');
+      setMessage(t('Please enter a valid age (minimum 13 years).'));
       return;
     }
     
     if (!form.city.trim()) {
-      setMessage('Please enter your city.');
+      setMessage(t('Please enter your city.'));
       return;
     }
 
@@ -124,9 +126,9 @@ export function VolunteerApplication({
         }
       }
 
-      setMessage('Your volunteer application has been submitted for admin review.');
+      setMessage(t('Your volunteer application has been submitted for admin review.'));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'An unexpected error occurred.');
+      setMessage(error instanceof Error ? error.message : t('An unexpected error occurred.'));
     } finally {
       setSubmitting(false);
     }
@@ -134,9 +136,9 @@ export function VolunteerApplication({
 
   const feedbackMessage = message || (
     application?.status === 'pending'
-      ? 'Your volunteer application has been submitted for admin review.'
+      ? t('Your volunteer application has been submitted for admin review.')
       : application?.status === 'approved'
-        ? '✓ Your volunteer application has been approved. Thank you for serving Wari pilgrims!'
+        ? t('✓ Your volunteer application has been approved. Thank you for serving Wari pilgrims!')
         : ''
   );
 
@@ -144,16 +146,16 @@ export function VolunteerApplication({
     <form className="space-y-3 text-sm" onSubmit={(event) => void submitApplication(event)}>
       {application?.status === 'rejected' && (
         <p className="rounded-lg bg-red-50 p-2 text-[13px] text-red-700">
-          Your previous application was rejected. You may submit a new application with updated details.
+          {t('Your previous application was rejected. You may submit a new application with updated details.')}
         </p>
       )}
 
       <div>
-        <label className="block text-xs font-semibold text-stone-700 mb-1">Full Name</label>
+        <label className="block text-xs font-semibold text-stone-700 mb-1">{t('Full Name')}</label>
         <input
           className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
           required
-          placeholder="e.g. Rahul Sharma"
+          placeholder={t('e.g. Rahul Sharma')}
           value={form.full_name}
           onChange={(e) => setForm({ ...form, full_name: e.target.value })}
         />
@@ -161,7 +163,7 @@ export function VolunteerApplication({
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">Phone Number</label>
+          <label className="block text-xs font-semibold text-stone-700 mb-1">{t('Phone Number')}</label>
           <input
             className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
             required
@@ -172,7 +174,7 @@ export function VolunteerApplication({
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">Emergency Contact</label>
+          <label className="block text-xs font-semibold text-stone-700 mb-1">{t('Emergency Contact')}</label>
           <input
             className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
             required
@@ -185,7 +187,7 @@ export function VolunteerApplication({
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-stone-700 mb-1">Preferred Station</label>
+        <label className="block text-xs font-semibold text-stone-700 mb-1">{t('Preferred Station')}</label>
         <select
           className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
           value={form.preferred_station}
@@ -193,7 +195,7 @@ export function VolunteerApplication({
         >
           {nodes.length > 0 ? (
             <>
-              <option value="">Select a station</option>
+              <option value="">{t('Select a station')}</option>
               {nodes.map((node) => (
                 <option key={node.id} value={node.id}>
                   {node.name}
@@ -201,14 +203,14 @@ export function VolunteerApplication({
               ))}
             </>
           ) : (
-            <option value="">Route stations unavailable</option>
+            <option value="">{t('Route stations unavailable')}</option>
           )}
         </select>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">Age</label>
+          <label className="block text-xs font-semibold text-stone-700 mb-1">{t('Age')}</label>
           <input
             className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
             required
@@ -220,11 +222,11 @@ export function VolunteerApplication({
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">City</label>
+          <label className="block text-xs font-semibold text-stone-700 mb-1">{t('City')}</label>
           <input
             className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
             required
-            placeholder="Pune / Solapur"
+            placeholder={t('Pune / Solapur')}
             value={form.city}
             onChange={(e) => setForm({ ...form, city: e.target.value })}
           />
@@ -232,11 +234,11 @@ export function VolunteerApplication({
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-stone-700 mb-1">Experience & Motivation</label>
+        <label className="block text-xs font-semibold text-stone-700 mb-1">{t('Experience & Motivation')}</label>
         <textarea
           className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
           rows={2}
-          placeholder="Prior Seva or crowd management experience..."
+          placeholder={t('Prior Seva or crowd management experience...')}
           value={form.experience}
           onChange={(e) => setForm({ ...form, experience: e.target.value })}
         />
@@ -247,12 +249,12 @@ export function VolunteerApplication({
         className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow hover:bg-orange-700 disabled:opacity-60 transition-all cursor-pointer"
         disabled={submitting}
       >
-        {submitting ? 'Submitting Application...' : '⚡ Apply to Volunteer'}
+        {submitting ? t('Submitting Application...') : `⚡ ${t('Apply to Volunteer')}`}
       </button>
 
       {feedbackMessage && (
         <div className="space-y-2">
-          <p className={`text-xs font-semibold ${needsAuth || feedbackMessage.includes('rejected') || feedbackMessage.includes('failed') ? 'text-red-700' : 'text-emerald-700'}`}>
+          <p className={`text-xs font-semibold ${needsAuth || feedbackMessage.includes('rejected') || feedbackMessage.includes('failed') || feedbackMessage.includes('नाकारला') || feedbackMessage.includes('अयशस्वी') ? 'text-red-700' : 'text-emerald-700'}`}>
             {feedbackMessage}
           </p>
           {needsAuth && onRequireAuth && (
@@ -261,7 +263,7 @@ export function VolunteerApplication({
               onClick={onRequireAuth}
               className="w-full rounded-xl bg-stone-900 py-2 text-xs font-bold text-white hover:bg-stone-800 transition-all"
             >
-              Sign In to Submit Application
+              {t('Sign In to Submit Application')}
             </button>
           )}
         </div>
