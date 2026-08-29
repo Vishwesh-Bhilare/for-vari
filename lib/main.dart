@@ -54,8 +54,10 @@ class _FullscreenWebViewState extends State<FullscreenWebView> {
             final String url = request.url;
             if (url.startsWith('tel:') || url.startsWith('mailto:') || url.startsWith('sms:')) {
               final Uri uri = Uri.parse(url);
-              if (await canLaunchUrl(uri)) {
+              try {
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
+              } catch (e) {
+                debugPrint('Launch URL error: $e');
               }
               return NavigationDecision.prevent;
             }

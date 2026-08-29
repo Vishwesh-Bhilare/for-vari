@@ -130,16 +130,7 @@ export function EmergencyContacts() {
   const triggerCall = (num: string) => {
     const cleanNumber = num.replace(/[^\d+]/g, '');
     const telUri = `tel:${cleanNumber}`;
-    
-    // 1. Direct location change
     window.location.href = telUri;
-
-    // 2. Open fallback for WebViews
-    try {
-      window.open(telUri, '_self');
-    } catch {
-      // ignore
-    }
   };
 
   const handleAddCustom = (e: React.FormEvent) => {
