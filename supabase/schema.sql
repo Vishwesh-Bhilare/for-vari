@@ -52,16 +52,11 @@ declare
   user_role text := 'pilgrim';
   user_approved boolean := false;
 begin
-  if new.email ilike '%admin%' or new.email = 'Bhilarevishwesh@gmail.com' or (new.raw_user_meta_data->>'role') = 'admin' then
-    user_role := 'admin';
-    user_approved := true;
-  end if;
-
   insert into public.profiles (id, role, approved)
   values (new.id, user_role, user_approved)
   on conflict (id) do update set
-    role = case when (new.email ilike '%admin%' or new.email = 'Bhilarevishwesh@gmail.com' or (new.raw_user_meta_data->>'role') = 'admin') then 'admin' else public.profiles.role end,
-    approved = case when (new.email ilike '%admin%' or new.email = 'Bhilarevishwesh@gmail.com' or (new.raw_user_meta_data->>'role') = 'admin') then true else public.profiles.approved end;
+    role = public.profiles.role,
+    approved = public.profiles.approved;
   return new;
 end;
 $$ language plpgsql security definer set search_path = public;
@@ -125,6 +120,16 @@ create table if not exists presence_pings (
   created_at timestamptz default now()
 );
 
+-- A user's most recent device location. Location visibility is restricted to
+-- their own group and to administrators; it is never exposed on the public map.
+create table if not exists live_locations (
+  user_id uuid primary key references profiles(id) on delete cascade,
+  lat float8 not null,
+  lng float8 not null,
+  accuracy float8,
+  updated_at timestamptz not null default now()
+);
+
 alter table groups enable row level security;
 alter table nodes enable row level security;
 alter table profiles enable row level security;
@@ -134,11 +139,12 @@ alter table item_requests enable row level security;
 alter table sightings enable row level security;
 alter table sos_alerts enable row level security;
 alter table presence_pings enable row level security;
+alter table live_locations enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['groups','nodes','profiles','volunteer_applications','crowd_reports','item_requests','sightings','sos_alerts','presence_pings'] loop
+  foreach t in array array['groups','nodes','profiles','volunteer_applications','crowd_reports','item_requests','sightings','sos_alerts','presence_pings','live_locations'] loop
     execute format('drop policy if exists hackathon_all on %I', t);
   end loop;
 end $$;
@@ -151,7 +157,7 @@ begin
     select schemaname, tablename, policyname
     from pg_policies
     where schemaname = 'public'
-      and tablename in ('groups','nodes','profiles','volunteer_applications','crowd_reports','item_requests','sightings','sos_alerts','presence_pings')
+      and tablename in ('groups','nodes','profiles','volunteer_applications','crowd_reports','item_requests','sightings','sos_alerts','presence_pings','live_locations')
   loop
     execute format('drop policy if exists %I on %I.%I', policy_record.policyname, policy_record.schemaname, policy_record.tablename);
   end loop;
@@ -166,9 +172,21 @@ create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from profiles p where p.id = auth.uid() and p.role = 'admin'
-  ) or (
-    coalesce(auth.jwt() ->> 'email', '') = 'Bhilarevishwesh@gmail.com'
-    or coalesce(auth.jwt() ->> 'email', '') ilike '%admin%'
+  );
+$$;
+
+create or replace function public.is_in_my_group(target_group_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select target_group_id is not null and exists (
+    select 1 from profiles where id = auth.uid() and group_id = target_group_id
+  );
+$$;
+
+create or replace function public.shares_group_with(target_user_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from profiles mine join profiles target on target.id = target_user_id
+    where mine.id = auth.uid() and mine.group_id is not null and mine.group_id = target.group_id
   );
 $$;
 
@@ -177,7 +195,7 @@ create policy "authenticated users can create groups" on groups for insert with 
 create policy "anyone can read nodes" on nodes for select using (true);
 create policy "admins manage nodes" on nodes for all using (public.is_admin()) with check (public.is_admin());
 
-create policy "users read own profile" on profiles for select using (auth.uid() = id or public.is_admin());
+create policy "users read own profile" on profiles for select using (auth.uid() = id or public.is_admin() or public.is_in_my_group(group_id));
 create policy "users update own profile" on profiles for update using (auth.uid() = id) with check (auth.uid() = id and role = 'pilgrim' and approved = false);
 create policy "admins manage profiles" on profiles for update using (public.is_admin()) with check (public.is_admin());
 
@@ -203,10 +221,18 @@ create policy "volunteers can resolve sos" on sos_alerts for update using (publi
 create policy "anyone can read presence_pings" on presence_pings for select using (true);
 create policy "authenticated users can insert presence_pings" on presence_pings for insert with check (auth.uid() is not null);
 
+create policy "users update their live location" on live_locations for insert with check (auth.uid() = user_id);
+create policy "users replace their live location" on live_locations for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "groups and admins read live locations" on live_locations for select using (
+  auth.uid() = user_id
+  or public.is_admin()
+  or public.shares_group_with(user_id)
+);
+
 -- Supabase Realtime only emits postgres_changes for tables in this publication.
 do $$
 begin
-  alter publication supabase_realtime add table crowd_reports, item_requests, sightings, sos_alerts, profiles, volunteer_applications, nodes;
+  alter publication supabase_realtime add table crowd_reports, item_requests, sightings, sos_alerts, profiles, volunteer_applications, nodes, live_locations;
 exception
   when duplicate_object then null;
 end $$;
@@ -218,13 +244,8 @@ create policy "users create own profile" on profiles
 create or replace function public.prevent_profile_privilege_escalation()
 returns trigger as $$
 declare
-  user_email text := auth.jwt() ->> 'email';
 begin
   if auth.uid() = new.id and not public.is_admin() then
-    if (user_email ilike '%admin%' or user_email = 'Bhilarevishwesh@gmail.com') and new.role = 'admin' then
-      return new;
-    end if;
-
     if new.role is distinct from old.role or new.approved is distinct from old.approved then
       raise exception 'Users cannot change their own role or approval status';
     end if;
@@ -276,4 +297,3 @@ $$ language plpgsql security definer set search_path = public;
 
 grant execute on function public.approve_volunteer_application(uuid) to authenticated, anon, service_role;
 notify pgrst, 'reload schema';
-

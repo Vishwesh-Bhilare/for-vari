@@ -6,7 +6,7 @@ import L from 'leaflet';
 import { cacheRows, drainOutbox, getRows, queueWrite } from './db';
 import { isSupabaseConfigured, supabase } from './supabase';
 import { signOut, useProfile, useSession, useVolunteerApplication } from './auth';
-import type { CrowdReport, Density, ItemRequest, NodePoint, Profile, Sighting, SosAlert, VolunteerApplication as VolunteerAppRecord } from './types';
+import type { CrowdReport, Density, ItemRequest, LiveLocation, NodePoint, Profile, Sighting, SosAlert, VolunteerApplication as VolunteerAppRecord } from './types';
 import { VolunteerApplication } from './components/VolunteerApplication';
 import { AdminLogin } from './pages/AdminLogin';
 import { AuthModal } from './components/AuthModal';
@@ -54,11 +54,12 @@ function directionsUrl(lat?: number, lng?: number) {
 }
 
 type Registration = { name: string; phone: string; emergency: string; groupCode: string; photo?: File };
-const makeGroupCode = () => `WARI-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
+const makeGroupCode = () => `WARI-${crypto.randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`;
 
 function usePosition() {
   const [position, setPosition] = useState<GeolocationPosition>();
   const [geoError, setGeoError] = useState<string | null>(null);
+  const watchIdRef = useRef<number | undefined>(undefined);
 
   const setManualLocation = (lat: number, lng: number, name = 'Manual Location') => {
     const mockPosition = {
@@ -87,6 +88,13 @@ function usePosition() {
       (pos) => {
         setPosition(pos);
         setGeoError(null);
+        if (watchIdRef.current === undefined) {
+          watchIdRef.current = navigator.geolocation.watchPosition(
+            (nextPosition) => { setPosition(nextPosition); setGeoError(null); },
+            (nextError) => setGeoError(nextError.message),
+            { enableHighAccuracy: true, maximumAge: 10_000 }
+          );
+        }
       },
       (err) => {
         console.warn('Geolocation error:', err);
@@ -101,23 +109,6 @@ function usePosition() {
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
     );
   };
-
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        setPosition(pos);
-        setGeoError(null);
-      },
-      (err) => {
-        if (err.code === 1) {
-          setGeoError('Location permission denied. Select route station manually below.');
-        }
-      },
-      { enableHighAccuracy: true, maximumAge: 10_000 }
-    );
-    return () => { if (watchId !== undefined) navigator.geolocation.clearWatch(watchId); };
-  }, []);
 
   return { position, requestLocation, geoError, setManualLocation };
 }
@@ -162,11 +153,13 @@ function App() {
   const [checkInNode, setCheckInNode] = useState('');
   const [itemName, setItemName] = useState('');
   const [groupCode, setGroupCode] = useState('');
-  const [registration, setRegistration] = useState<Registration>({ name: '', phone: '', emergency: '', groupCode: '' });
+  const [registration, setRegistration] = useState<Registration>(() => ({ name: '', phone: '', emergency: '', groupCode: makeGroupCode() }));
   const [registeredGroup, setRegisteredGroup] = useState('');
   const [familyCode, setFamilyCode] = useState('');
   const [registeredProfileCount, setRegisteredProfileCount] = useState(0);
   const [familyProfiles, setFamilyProfiles] = useState<Profile[]>([]);
+  const [liveLocations, setLiveLocations] = useState<LiveLocation[]>([]);
+  const [groupAction, setGroupAction] = useState<'create' | 'join'>('create');
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string }>();
   const [activePanel, setActivePanel] = useState<'lending' | 'lost' | 'volunteer'>('lending');
   const [showDensitySheet, setShowDensitySheet] = useState(false);
@@ -186,6 +179,42 @@ function App() {
     ]);
     void drainOutbox();
   }, []);
+
+  useEffect(() => {
+    if (!profile?.group_id || !isSupabaseConfigured) return;
+    void supabase.from('groups').select('group_code').eq('id', profile.group_id).maybeSingle()
+      .then(({ data }) => {
+        if (data?.group_code) {
+          setGroupCode(data.group_code);
+          setFamilyCode(data.group_code);
+          setRegisteredGroup(data.group_code);
+        }
+      });
+  }, [profile?.group_id]);
+
+  useEffect(() => {
+    if (!session || !currentMemberId || !position || !isSupabaseConfigured) return;
+    const publish = () => void supabase.from('live_locations').upsert({
+      user_id: currentMemberId,
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      accuracy: position.coords.accuracy,
+      updated_at: new Date().toISOString()
+    });
+    publish();
+    const interval = window.setInterval(publish, 30_000);
+    return () => window.clearInterval(interval);
+  }, [session, currentMemberId, position]);
+
+  useEffect(() => {
+    if (!session || !isSupabaseConfigured) { setLiveLocations([]); return; }
+    const loadLocations = () => void supabase.from('live_locations').select('user_id, lat, lng, accuracy, updated_at').then(({ data }) => setLiveLocations((data ?? []) as LiveLocation[]));
+    loadLocations();
+    const channel = supabase.channel(`live-locations-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'live_locations' }, loadLocations)
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [session]);
 
   useEffect(() => {
     void supabase.from('nodes').select('*').order('sequence_order').then(({ data }) => {
@@ -208,9 +237,16 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (view !== 'pilgrim') return;
+    if (view === 'sos_mesh') return;
     const mapElement = document.getElementById('map');
     if (!mapElement) return;
+
+    if (mapRef.current && mapRef.current.getContainer() !== mapElement) {
+      mapRef.current.remove();
+      mapRef.current = null;
+      markerLayerRef.current = null;
+      routeRef.current = null;
+    }
 
     if (!mapRef.current) {
       mapRef.current = L.map('map', { zoomControl: false, attributionControl: true }).setView([17.95, 74.7], 8);
@@ -222,9 +258,17 @@ function App() {
     markerLayerRef.current?.clearLayers();
     nodes.forEach((node) => L.circleMarker([node.lat, node.lng], { radius: 11, color: '#7c2d12', fillColor: densityClass[latest.get(node.id) ?? 'unknown'], fillOpacity: 0.9 })
       .bindPopup(`${node.name}: ${latest.get(node.id) ?? 'no data'} crowd`).addTo(markerLayerRef.current!));
+    if (session) {
+      liveLocations.forEach((live) => {
+        const mine = live.user_id === currentMemberId;
+        L.circleMarker([live.lat, live.lng], { radius: mine ? 8 : 5, color: mine ? '#1d4ed8' : '#7c3aed', fillColor: mine ? '#60a5fa' : '#c4b5fd', fillOpacity: 1 })
+          .bindPopup(mine ? 'Your live location' : role === 'admin' ? 'Pilgrim live location' : 'Group member live location')
+          .addTo(markerLayerRef.current!);
+      });
+    }
     routeRef.current?.remove();
     routeRef.current = L.polyline(nodes.map((n) => [n.lat, n.lng] as L.LatLngTuple), { color: '#ea580c', weight: 4 }).addTo(mapRef.current);
-  }, [view, nodes, reports]);
+  }, [view, nodes, reports, liveLocations, session, currentMemberId, role]);
 
   const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
   const nearestNodeId = useMemo(() => nodes.map((node) => ({ node, distance: getDistanceMeters(position?.coords, node.lat, node.lng) })).sort((a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY))[0]?.node.id ?? nodes[0]?.id ?? '', [nodes, position?.coords]);
@@ -317,7 +361,7 @@ function App() {
     }
     const normalizedGroupCode = registration.groupCode.trim();
     if (!normalizedGroupCode) {
-      setNotice({ type: 'error', text: 'Enter or generate a family group code.' });
+      setNotice({ type: 'error', text: 'Enter a group code.' });
       return;
     }
 
@@ -328,8 +372,16 @@ function App() {
       return;
     }
     if (existing.data?.id) {
+      if (groupAction === 'create') {
+        setNotice({ type: 'error', text: 'That group code is already in use. Generate another code or choose Join group.' });
+        return;
+      }
       groupId = existing.data.id;
     } else {
+      if (groupAction === 'join') {
+        setNotice({ type: 'error', text: 'We could not find that group code. Check it or create a new group.' });
+        return;
+      }
       groupId = crypto.randomUUID();
       const { error } = await supabase.from('groups').insert({ id: groupId, group_code: normalizedGroupCode });
       if (error) {
@@ -355,7 +407,7 @@ function App() {
       return;
     }
     setGroupCode(normalizedGroupCode); setFamilyCode(normalizedGroupCode); setRegisteredGroup(normalizedGroupCode);
-    setNotice({ type: 'success', text: existing.data?.id ? 'Joined existing group.' : 'Created new group.' });
+    setNotice({ type: 'success', text: groupAction === 'join' ? 'Joined group successfully.' : 'Group created successfully. Share the code with your pilgrims.' });
   }
   async function checkIn() {
     if (!session) {
@@ -397,10 +449,11 @@ function App() {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3"><div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center text-xl">🚩</span><div><h1 className="text-base font-extrabold leading-tight">Wari Companion</h1><p className="text-xs font-semibold uppercase tracking-widest text-stone-400">Pandharpur Vari</p></div></div><nav className="hidden lg:flex items-center gap-1"><button onClick={() => changeView('pilgrim')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'pilgrim' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Pilgrim view</button><button onClick={() => changeView('sos_mesh')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'sos_mesh' ? 'bg-red-600 text-white' : 'text-red-400 hover:bg-red-900/40'}`}>SOS mesh</button><button onClick={() => changeView('admin')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'admin' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Admin</button></nav>{session ? <button onClick={() => void handleSignOut()} className="flex h-8 w-8 items-center justify-center rounded-full bg-saffron-600 text-xs font-bold text-white">{(profile?.display_name ?? session.user.email ?? '?').slice(0, 2).toUpperCase()}</button> : <button onClick={() => setShowAuthModal(true)} className="rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-semibold text-stone-300">Sign in</button>}</div>
       </header>
       {(notice || authError || profileError || applicationError) && <div className={`mx-4 mt-3 rounded-xl border p-3 text-sm font-semibold ${notice?.type === 'success' ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'}`}>{notice?.text ?? authError ?? profileError ?? applicationError}</div>}
-      {view === 'admin' ? <div className="min-h-screen bg-saffron-50 px-4 py-3 pb-20 lg:px-8 lg:pb-4"><h2 className="mb-3 text-xl font-extrabold text-stone-900">Admin dashboard</h2><AdminLogin userId={currentMemberId} userEmail={session?.user?.email} role={role} activeSosCount={activeSosCount} registeredProfileCount={registeredProfileCount} routeStationCount={nodes.length} nodes={nodes} onNodesChange={setNodes} /></div> : view === 'sos_mesh' ? <div className="min-h-screen bg-stone-950 pb-20 lg:pb-4"><VarkariSosMesh currentMemberId={currentMemberId} profile={profile} position={position} nodes={nodes} nearestNodeId={nearestNodeId} onSosCreated={(newAlert) => setSosAlerts((prev) => [newAlert, ...prev])} onRequestLocationPermission={requestLocation} geoError={geoError} onSetManualLocation={setManualLocation} /></div> : <div className="pb-20 lg:pb-4">
+      {view === 'admin' ? <div className="min-h-screen bg-saffron-50 px-4 py-3 pb-20 lg:px-8 lg:pb-4"><h2 className="mb-3 text-xl font-extrabold text-stone-900">Admin dashboard</h2>{role === 'admin' && <><p className="mb-3 text-sm text-stone-600">Live locations for all pilgrims who have granted device permission.</p><div id="map" className="mb-4 h-[320px] w-full overflow-hidden rounded-2xl bg-cream-100" /></>}<AdminLogin userId={currentMemberId} userEmail={session?.user?.email} role={role} activeSosCount={activeSosCount} registeredProfileCount={registeredProfileCount} routeStationCount={nodes.length} nodes={nodes} onNodesChange={setNodes} /></div> : view === 'sos_mesh' ? <div className="min-h-screen bg-stone-950 pb-20 lg:pb-4"><VarkariSosMesh currentMemberId={currentMemberId} profile={profile} position={position} nodes={nodes} nearestNodeId={nearestNodeId} onSosCreated={(newAlert) => setSosAlerts((prev) => [newAlert, ...prev])} onRequestLocationPermission={requestLocation} geoError={geoError} onSetManualLocation={setManualLocation} /></div> : <div className="pb-20 lg:pb-4">
         {activeSosCount > 0 && <div className="sticky top-0 z-40 flex items-center justify-between bg-red-600 px-4 py-3 text-white"><span className="flex items-center text-sm font-bold"><span className="mr-2 h-2.5 w-2.5 animate-pulse rounded-full bg-white" />{activeSosCount} active alert{activeSosCount === 1 ? '' : 's'}</span><button onClick={() => changeView('sos_mesh')} className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-bold">View →</button></div>}
-        <div className="lg:grid lg:grid-cols-[2fr_1fr] lg:gap-4 lg:p-4"><div className="space-y-3"><div className="relative mx-4 h-[240px] overflow-hidden rounded-2xl lg:mx-0 lg:h-[400px]"><div id="map" className="h-full w-full bg-cream-100" /><button onClick={() => setShowDensitySheet(true)} className="absolute bottom-3 right-3 min-h-[44px] rounded-xl bg-saffron-600 px-3 py-2 text-xs font-bold text-white shadow-sm">Report density</button></div><div className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide lg:hidden">{latestReports.map(({node,density}) => <div key={node.id} className={`w-[140px] flex-shrink-0 rounded-2xl border border-cream-200 border-l-4 bg-white p-3 shadow-sm ${density === 'high' ? 'border-l-red-600' : density === 'medium' ? 'border-l-amber-500' : 'border-l-green-600'}`}><p className="truncate text-sm font-extrabold text-stone-900">{node.name}</p><span className={`mt-2 inline-block rounded-full px-2.5 py-1 text-xs font-bold ${density === 'high' ? 'bg-red-50 text-red-700' : density === 'medium' ? 'bg-amber-50 text-amber-700' : density === 'low' ? 'bg-green-50 text-green-600' : 'bg-cream-100 text-stone-500'}`}>{density === 'unknown' ? 'No data' : density}</span></div>)}</div><section className="mx-4 overflow-hidden rounded-2xl border border-cream-200 bg-white lg:mx-0 lg:grid lg:grid-cols-3 lg:gap-4 lg:border-0 lg:bg-transparent">
-          {([['lending','🤝','Peer lending'],['lost','🔎','Lost & found'],['volunteer','🙋','Volunteer application']] as const).map(([key,icon,title]) => <div key={key} className="border-b border-cream-200 last:border-0 lg:rounded-2xl lg:border lg:border-cream-200 lg:bg-white lg:p-4 lg:shadow-sm"><button onClick={() => setActivePanel(key)} className="flex min-h-[48px] w-full items-center justify-between px-4 py-3 lg:pointer-events-none lg:px-0 lg:py-0"><span className="flex items-center gap-2 text-sm font-extrabold text-stone-900"><span>{icon}</span>{title}</span><span className={`text-stone-400 transition-transform duration-200 lg:hidden ${activePanel === key ? 'rotate-180' : ''}`}>⌄</span></button><div className={`overflow-hidden transition-all duration-200 ease-out ${activePanel === key ? 'max-h-[500px]' : 'max-h-0'} lg:max-h-[900px]`}><div className="px-4 pb-4 pt-2 lg:px-0">{key === 'lending' ? <><div className="mb-3 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">{['Water','Food','Torch','Medicine','Blanket','First Aid'].map(chip => <button key={chip} onClick={() => setItemName(chip)} className={`flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${itemName === chip ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>{chip}</button>)}</div><label className="mb-1.5 block text-xs font-semibold text-stone-600">What do you need?</label><input className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none" value={itemName} onChange={e => setItemName(e.target.value)} placeholder="e.g. water bottle, torch..."/><button disabled={Boolean(myActiveRequest)} onClick={() => void requestItem()} className="mt-3 w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-60">Request item</button><div className="mt-3 space-y-2">{sortedPrimaryItems.slice(0,3).map(({item:i},idx) => <div key={i.id ?? idx} className="flex items-center justify-between rounded-xl bg-saffron-50 px-3 py-2"><span className="text-xs font-semibold text-stone-800">{i.item_name}</span>{i.requester_id !== currentMemberId && <button onClick={() => void acceptItem(i)} className="rounded-lg border border-saffron-600 px-2.5 py-1 text-xs font-bold text-saffron-600">Offer</button>}</div>)}</div></> : key === 'lost' ? <><div className="mb-3 flex rounded-lg bg-cream-100 p-0.5"><button onClick={() => setLostTab('register')} className={`flex-1 rounded-md px-3 py-1.5 text-xs font-bold ${lostTab === 'register' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500'}`}>Register group</button><button onClick={() => setLostTab('find')} className={`flex-1 rounded-md px-3 py-1.5 text-xs font-bold ${lostTab === 'find' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500'}`}>Find someone</button></div>{lostTab === 'register' ? <><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Name" value={registration.name} onChange={e=>setRegistration({...registration,name:e.target.value})}/><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Phone" value={registration.phone} onChange={e=>setRegistration({...registration,phone:e.target.value})}/><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Group code" value={registration.groupCode} onChange={e=>setRegistration({...registration,groupCode:e.target.value})}/><button onClick={() => void registerGroup()} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">Register my group</button></> : <><input className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Search by name..." value={familyCode} onChange={e=>setFamilyCode(e.target.value)}/><div className="mt-3 space-y-2">{familyProfiles.map(m=><div key={m.id} className="rounded-xl bg-saffron-50 px-3 py-2 text-xs font-semibold text-stone-800">{m.display_name ?? 'Unnamed pilgrim'}</div>)}</div></>}</> : <><button onClick={() => setShowApplyModal(true)} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">Apply for Seva ⚡</button>{session ? <VolunteerDashboard session={session} profile={profile} role={role} approved={approved} loading={authLoading || profileLoading} nodes={nodes} sosAlerts={sosAlerts} sightings={sightings} setSosAlerts={setSosAlerts} setSightings={setSightings}/> : <p className="mt-3 text-sm text-stone-500">Sign in to access volunteer features.</p>}</>}</div></div></div>)}
+        {session && !position && <div className="mx-4 mt-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><span>Share your device location to show your live dot to your group.</span><button onClick={requestLocation} className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white">Allow location</button></div>}
+        {!session && <section className="mx-4 mt-4 rounded-2xl bg-stone-950 p-5 text-white lg:mx-4"><h2 className="text-xl font-extrabold">Plan a safer Wari journey</h2><p className="mt-1 text-sm text-stone-300">View the route and crowd density, apply to volunteer, or sign in to coordinate with your pilgrim group.</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={() => setShowAuthModal(true)} className="rounded-xl bg-saffron-600 px-4 py-2 text-sm font-bold">Pilgrim sign in / sign up</button><button onClick={() => setShowApplyModal(true)} className="rounded-xl border border-stone-600 px-4 py-2 text-sm font-bold">Volunteer application</button></div></section>}<div className="lg:grid lg:grid-cols-[2fr_1fr] lg:gap-4 lg:p-4"><div className="space-y-3"><div className="relative mx-4 h-[240px] overflow-hidden rounded-2xl lg:mx-0 lg:h-[400px]"><div id="map" className="h-full w-full bg-cream-100" /><button onClick={() => session ? setShowDensitySheet(true) : setShowAuthModal(true)} className="absolute bottom-3 right-3 min-h-[44px] rounded-xl bg-saffron-600 px-3 py-2 text-xs font-bold text-white shadow-sm">{session ? 'Report density' : 'Sign in to report'}</button></div><div className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide lg:hidden">{latestReports.map(({node,density}) => <div key={node.id} className={`w-[140px] flex-shrink-0 rounded-2xl border border-cream-200 border-l-4 bg-white p-3 shadow-sm ${density === 'high' ? 'border-l-red-600' : density === 'medium' ? 'border-l-amber-500' : 'border-l-green-600'}`}><p className="truncate text-sm font-extrabold text-stone-900">{node.name}</p><span className={`mt-2 inline-block rounded-full px-2.5 py-1 text-xs font-bold ${density === 'high' ? 'bg-red-50 text-red-700' : density === 'medium' ? 'bg-amber-50 text-amber-700' : density === 'low' ? 'bg-green-50 text-green-600' : 'bg-cream-100 text-stone-500'}`}>{density === 'unknown' ? 'No data' : density}</span></div>)}</div><section className="mx-4 overflow-hidden rounded-2xl border border-cream-200 bg-white lg:mx-0 lg:grid lg:grid-cols-3 lg:gap-4 lg:border-0 lg:bg-transparent">
+          {([['lending','🤝','Peer lending'],['lost','🔎','Lost & found'],['volunteer','🙋','Volunteer application']] as const).map(([key,icon,title]) => <div key={key} className="border-b border-cream-200 last:border-0 lg:rounded-2xl lg:border lg:border-cream-200 lg:bg-white lg:p-4 lg:shadow-sm"><button onClick={() => setActivePanel(key)} className="flex min-h-[48px] w-full items-center justify-between px-4 py-3 lg:pointer-events-none lg:px-0 lg:py-0"><span className="flex items-center gap-2 text-sm font-extrabold text-stone-900"><span>{icon}</span>{title}</span><span className={`text-stone-400 transition-transform duration-200 lg:hidden ${activePanel === key ? 'rotate-180' : ''}`}>⌄</span></button><div className={`overflow-hidden transition-all duration-200 ease-out ${activePanel === key ? 'max-h-[500px]' : 'max-h-0'} lg:max-h-[900px]`}><div className="px-4 pb-4 pt-2 lg:px-0">{key === 'lending' ? <><div className="mb-3 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">{['Water','Food','Torch','Medicine','Blanket','First Aid'].map(chip => <button key={chip} onClick={() => setItemName(chip)} className={`flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${itemName === chip ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>{chip}</button>)}</div><label className="mb-1.5 block text-xs font-semibold text-stone-600">What do you need?</label><input className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none" value={itemName} onChange={e => setItemName(e.target.value)} placeholder="e.g. water bottle, torch..."/><button disabled={Boolean(myActiveRequest)} onClick={() => void requestItem()} className="mt-3 w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-60">Request item</button><div className="mt-3 space-y-2">{sortedPrimaryItems.slice(0,3).map(({item:i},idx) => <div key={i.id ?? idx} className="flex items-center justify-between rounded-xl bg-saffron-50 px-3 py-2"><span className="text-xs font-semibold text-stone-800">{i.item_name}</span>{i.requester_id !== currentMemberId && <button onClick={() => void acceptItem(i)} className="rounded-lg border border-saffron-600 px-2.5 py-1 text-xs font-bold text-saffron-600">Offer</button>}</div>)}</div></> : key === 'lost' ? <GroupPanel session={session} groupAction={groupAction} setGroupAction={setGroupAction} registration={registration} setRegistration={setRegistration} registeredGroup={registeredGroup} familyProfiles={familyProfiles} onSubmit={() => void registerGroup()} /> : <><button onClick={() => setShowApplyModal(true)} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">Apply for Seva ⚡</button>{session ? <VolunteerDashboard session={session} profile={profile} role={role} approved={approved} loading={authLoading || profileLoading} nodes={nodes} sosAlerts={sosAlerts} sightings={sightings} setSosAlerts={setSosAlerts} setSightings={setSightings}/> : <p className="mt-3 text-sm text-stone-500">Sign in to access volunteer features.</p>}</>}</div></div></div>)}
         </section></div><aside className="hidden space-y-3 lg:block"><h2 className="text-base font-extrabold text-stone-900">Crowd density</h2>{latestReports.map(({node,density})=><div key={node.id} className="flex items-center gap-3 rounded-2xl border border-cream-200 bg-white p-3"><span className={`h-3 w-3 rounded-full ${density === 'high' ? 'bg-red-600' : density === 'medium' ? 'bg-amber-500' : 'bg-green-600'}`}/><span className="flex-1 text-sm font-semibold">{node.name}</span><span className="rounded-full bg-cream-100 px-2 py-1 text-xs font-bold capitalize">{density}</span></div>)}<button onClick={() => setShowDensitySheet(true)} className="w-full min-h-[48px] rounded-xl border-2 border-saffron-600 py-3 text-sm font-bold text-saffron-600">Report density</button></aside></div>
         {showApplyModal && <div className="fixed inset-0 z-[2000] flex items-end justify-center bg-stone-900/60 backdrop-blur-sm sm:items-center"><div className="relative w-full rounded-t-3xl bg-white px-5 pt-2 pb-8 shadow-2xl sm:max-w-lg sm:rounded-3xl sm:p-7"><div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-stone-200 sm:hidden"/><button onClick={() => setShowApplyModal(false)} className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-stone-400">✕</button><h3 className="mb-5 text-xl font-extrabold">Volunteer application</h3><VolunteerApplication userId={currentMemberId} application={application} nodes={nodes} onRequireAuth={() => setShowAuthModal(true)}/></div></div>}
         {showDensitySheet && <><div className="fixed inset-0 z-40 bg-stone-900/40" onClick={() => setShowDensitySheet(false)}/><div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl transition-transform duration-300 ease-out"><div className="mx-auto mb-4 h-1 w-12 rounded-full bg-stone-200"/><h2 className="text-base font-extrabold">Report crowd density</h2><select className="mt-4 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" value={selectedNode} onChange={e=>setSelectedNode(e.target.value)}>{nodes.map(n=><option key={n.id} value={n.id}>{n.name}</option>)}</select><div className="mt-3 flex gap-2">{(['low','medium','high'] as Density[]).map(d=><button key={d} onClick={() => { void reportDensity(d); setShowDensitySheet(false); }} className={`flex min-h-[80px] flex-1 flex-col items-center justify-center rounded-xl border-2 text-sm font-bold capitalize ${d === 'low' ? 'border-green-500 bg-green-50 text-green-700' : d === 'medium' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-red-500 bg-red-50 text-red-700'}`}>{d === 'low' ? '🟢' : d === 'medium' ? '🟡' : '🔴'}<span>{d}</span></button>)}</div></div></>}
@@ -409,6 +462,11 @@ function App() {
       {activeSosCount === 0 && view === 'pilgrim' && <button onClick={sendSos} className="fixed bottom-[72px] left-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-xl text-white shadow-lg">🚨</button>}
     </main>
   );
+}
+
+function GroupPanel({ session, groupAction, setGroupAction, registration, setRegistration, registeredGroup, familyProfiles, onSubmit }: { session: ReturnType<typeof useSession>['session']; groupAction: 'create' | 'join'; setGroupAction: React.Dispatch<React.SetStateAction<'create' | 'join'>>; registration: Registration; setRegistration: React.Dispatch<React.SetStateAction<Registration>>; registeredGroup: string; familyProfiles: Profile[]; onSubmit: () => void }) {
+  if (!session) return <div className="rounded-xl bg-saffron-50 p-3 text-sm text-stone-600">Sign in as a pilgrim to create or join a group and share live locations.</div>;
+  return <><div className="mb-3 grid grid-cols-2 gap-2"><button onClick={() => { setGroupAction('create'); setRegistration({ ...registration, groupCode: makeGroupCode() }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'create' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Create group</button><button onClick={() => { setGroupAction('join'); setRegistration({ ...registration, groupCode: '' }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'join' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Join group</button></div><p className="mb-3 text-xs text-stone-500">{groupAction === 'create' ? 'A unique code has been generated. Share it only with your group.' : 'Enter the unique code shared by your group organiser.'}</p><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Your name" value={registration.name} onChange={e => setRegistration({ ...registration, name: e.target.value })}/><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Unique group code" value={registration.groupCode} onChange={e => setRegistration({ ...registration, groupCode: e.target.value.toUpperCase() })}/><button onClick={onSubmit} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">{groupAction === 'create' ? 'Create & join group' : 'Join group'}</button>{registeredGroup && <><p className="mt-3 rounded-xl bg-green-50 p-3 text-xs font-bold text-green-700">Your group code: {registeredGroup}</p><p className="mt-2 text-xs text-stone-500">{familyProfiles.length} member{familyProfiles.length === 1 ? '' : 's'} in your group. Purple map dots are shared only after each member grants location access.</p></>}</>;
 }
 
 function VolunteerDashboard({ session, profile, role, approved, loading, nodes, sosAlerts, sightings, setSosAlerts, setSightings }: { session: ReturnType<typeof useSession>['session']; profile: Profile | null; role: string; approved: boolean; loading: boolean; nodes: NodePoint[]; sosAlerts: SosAlert[]; sightings: Sighting[]; setSosAlerts: React.Dispatch<React.SetStateAction<SosAlert[]>>; setSightings: React.Dispatch<React.SetStateAction<Sighting[]>> }) {
