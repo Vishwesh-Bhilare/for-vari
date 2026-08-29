@@ -15,9 +15,11 @@ export function AdminLogin({
   registeredProfileCount = 0,
   routeStationCount = 0,
   nodes = [],
+  broadcastMessages = [],
   onNodesChange,
   onApproveVolunteer,
-  onBroadcastCreated
+  onBroadcastCreated,
+  onDeleteBroadcast
 }: {
   userId?: string;
   userEmail?: string;
@@ -26,9 +28,11 @@ export function AdminLogin({
   registeredProfileCount?: number;
   routeStationCount?: number;
   nodes?: NodePoint[];
+  broadcastMessages?: BroadcastMessage[];
   onNodesChange?: (nodes: NodePoint[]) => void;
   onApproveVolunteer?: (application: VolunteerApplication) => void;
   onBroadcastCreated?: (broadcast: BroadcastMessage) => void;
+  onDeleteBroadcast?: (id: string) => void;
 }) {
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState<VolunteerApplication[]>([]);
@@ -273,6 +277,19 @@ export function AdminLogin({
     }
   }
 
+  async function handleDeleteBroadcast(id?: string) {
+    if (!id) return;
+    if (isSupabaseConfigured) {
+      try {
+        void supabase.from('broadcast_messages').update({ active: false }).eq('id', id);
+      } catch (err) {
+        console.warn('Failed to delete broadcast from Supabase:', err);
+      }
+    }
+    onDeleteBroadcast?.(id);
+    setMessage('✓ Broadcast removed from marquee.');
+  }
+
   async function saveNode(event: React.FormEvent) {
     event.preventDefault();
     if (!isAdmin || !isSupabaseConfigured) return;
@@ -445,6 +462,24 @@ export function AdminLogin({
             {broadcasting ? 'Publishing…' : 'Broadcast'}
           </button>
         </form>
+
+        {broadcastMessages.length > 0 && (
+          <div className="mt-4 space-y-2 pt-3 border-t border-stone-200">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">Active Marquee Broadcasts</h3>
+            {broadcastMessages.map((msg) => (
+              <div key={msg.id} className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs">
+                <span className="font-semibold text-stone-800 truncate">📢 {msg.message}</span>
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteBroadcast(msg.id ? String(msg.id) : undefined)}
+                  className="shrink-0 rounded-lg bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700 hover:bg-red-200 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
