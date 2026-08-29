@@ -3,7 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
+// Use local dev server URL for emulator testing (10.0.2.2 points to host localhost)
+// Change to vercelUrl for production build
+const String localDevUrl = 'http://10.0.2.2:5173/';
 const String vercelUrl = 'https://for-vari.vercel.app/';
+
+// Toggle between localDevUrl and vercelUrl as needed:
+const String activeUrl = localDevUrl;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,7 +50,7 @@ class _FullscreenWebViewState extends State<FullscreenWebView> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(NavigationDelegate())
-      ..loadRequest(Uri.parse(vercelUrl));
+      ..loadRequest(Uri.parse(activeUrl));
   }
 
   @override
