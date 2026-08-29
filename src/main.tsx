@@ -710,6 +710,15 @@ function App() {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setGuestLanguage(guestLanguage === 'mr' ? 'en' : 'mr')}
+              className="px-3 py-1.5 rounded-xl bg-orange-950/80 text-orange-200 border border-orange-500/40 hover:bg-orange-900 text-xs font-black transition flex items-center gap-1 shadow-2xs"
+              title="Toggle Language / भाषा बदला (English / मराठी)"
+            >
+              <span>🌐</span>
+              <span>{guestLanguage === 'mr' ? 'English' : 'मराठी'}</span>
+            </button>
+            <button
+              type="button"
               onClick={toggleSunlightMode}
               className={`px-3 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1 ${
                 isSunlightMode
@@ -756,7 +765,11 @@ function App() {
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex rounded-2xl border border-white/30 bg-black/20 p-1 backdrop-blur-md" aria-label="Translate page language">
+                <button type="button" onClick={() => setGuestLanguage('en')} className={`rounded-xl px-3 py-1.5 text-xs font-black transition ${guestLanguage === 'en' ? 'bg-white text-orange-600 shadow-sm' : 'text-white/80 hover:text-white'}`}>English</button>
+                <button type="button" onClick={() => setGuestLanguage('mr')} className={`rounded-xl px-3 py-1.5 text-xs font-black transition ${guestLanguage === 'mr' ? 'bg-white text-orange-600 shadow-sm' : 'text-white/80 hover:text-white'}`}>मराठी</button>
+              </div>
               <button
                 onClick={() => changeView('helplines')}
                 className="px-4 py-2.5 rounded-2xl bg-white text-stone-900 text-xs font-black shadow-md hover:bg-stone-100 active:scale-95 transition"
