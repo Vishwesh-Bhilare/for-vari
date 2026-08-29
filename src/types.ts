@@ -15,6 +15,15 @@ export interface Profile {
   created_at?: string;
 }
 
+export interface LiveLocation {
+  user_id: string;
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  updated_at?: string;
+  profile?: Pick<Profile, 'display_name' | 'group_id'>;
+}
+
 
 export type VolunteerApplicationStatus = 'pending' | 'approved' | 'rejected';
 
@@ -194,6 +203,5 @@ export interface EmergencyContact {
 }
 
 export type StoredRecord = CrowdReport | ItemRequest | Sighting | SosAlert;
-
 
 

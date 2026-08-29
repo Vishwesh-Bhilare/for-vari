@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { sendPasswordReset, signIn, signUp } from '../auth';
+import { supabase } from '../supabase';
+import type { UserRole } from '../types';
 
 interface AuthModalProps {
   open: boolean;
@@ -24,6 +26,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [signInRole, setSignInRole] = useState<UserRole>('pilgrim');
 
   const modalRef = useRef<HTMLDivElement>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
@@ -81,7 +84,14 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
 
     setLoading(true);
     try {
-      await signIn(signInEmail.trim(), signInPassword);
+      const result = await signIn(signInEmail.trim(), signInPassword);
+      if (result.user) {
+        const { data: account } = await supabase.from('profiles').select('role').eq('id', result.user.id).maybeSingle();
+        if (account?.role && account.role !== signInRole) {
+          setError(`This account is registered as ${account.role}. Choose that sign-in option.`);
+          return;
+        }
+      }
       setSuccess('Signed in successfully!');
       setTimeout(() => {
         onClose();
@@ -242,6 +252,12 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
         {/* Sign In Tab */}
         {activeTab === 'signin' && (
           <form className="space-y-4" onSubmit={handleSignIn}>
+            <fieldset>
+              <legend className="mb-1.5 block text-xs font-semibold text-stone-600">Sign in as</legend>
+              <div className="grid grid-cols-3 gap-2">
+                {(['pilgrim', 'volunteer', 'admin'] as UserRole[]).map((role) => <button key={role} type="button" onClick={() => setSignInRole(role)} className={`rounded-xl border px-2 py-2 text-xs font-bold capitalize ${signInRole === role ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>{role}</button>)}
+              </div>
+            </fieldset>
             <div>
               <label className="mb-1.5 block text-xs font-semibold text-stone-600">
                 Email
@@ -312,6 +328,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
         {/* Register Tab */}
         {activeTab === 'register' && (
           <form className="space-y-4" onSubmit={handleRegister}>
+            <p className="rounded-xl bg-saffron-50 p-3 text-xs font-semibold text-stone-600">Create a pilgrim account. Volunteer access is granted after your Seva application is approved, and administrator accounts are managed separately.</p>
             <div>
               <label className="mb-1.5 block text-xs font-semibold text-stone-600">
                 Display Name
