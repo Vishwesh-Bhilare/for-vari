@@ -110,10 +110,10 @@ class NewsRequestHandler(BaseHTTPRequestHandler):
         # Concise custom logging
         print(f"[NewsServer] {self.address_string()} - {args[0]}")
 
-def run_server(port=5000):
-    host = '127.0.0.1'
+def run_server(port=5005):
+    host = '0.0.0.0'
     server = ThreadedHTTPServer((host, port), NewsRequestHandler)
-    print(f"🔥 Real-time News Scraper API running on http://{host}:{port}/api/news")
+    print(f"🔥 Real-time News Scraper API running on http://localhost:{port}/api/news")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -121,5 +121,5 @@ def run_server(port=5000):
         server.server_close()
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 5005))
     run_server(port)

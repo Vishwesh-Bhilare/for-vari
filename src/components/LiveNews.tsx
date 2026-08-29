@@ -95,12 +95,12 @@ export function LiveNews() {
     setError(null);
 
     try {
-      // Try Vite proxy endpoint /api/news or direct Python server on localhost:5000
+      // Try Vite proxy endpoint /api/news or direct Python server on localhost:5005
       let res: Response | null = null;
       try {
         res = await fetch(`/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(6000) });
       } catch {
-        res = await fetch(`http://127.0.0.1:5000/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(6000) });
+        res = await fetch(`http://127.0.0.1:5005/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(6000) });
       }
 
       if (res && res.ok) {
