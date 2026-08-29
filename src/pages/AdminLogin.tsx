@@ -680,9 +680,9 @@ export function AdminLogin({
 
 function Stat({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
-      <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">{label}</span>
-      <div className={`mt-2 text-3xl font-black ${color}`}>{value}</div>
+    <div className="rounded-2xl border border-stone-200/80 bg-gradient-to-br from-white to-amber-50/40 p-5 shadow-sm hover-lift transition-all">
+      <span className="text-[10px] font-black uppercase tracking-wider text-stone-500">{label}</span>
+      <div className={`mt-2 text-3xl sm:text-4xl font-black ${color}`}>{value}</div>
     </div>
   );
 }

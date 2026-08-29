@@ -1815,23 +1815,25 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
             </span>
           </div>
 
-          {/* Quick Message Chips */}
+          {/* Quick Message Presets Grid */}
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2">
-              {lang === 'mr' ? 'त्वरित संदेश:' : 'Quick Presets:'}
+            <p className="text-[11px] font-black uppercase tracking-wider text-saffron-400 mb-2.5 flex items-center gap-1.5">
+              <span>⚡</span>
+              <span>{lang === 'mr' ? 'त्वरित १-क्लिक संदेश:' : '1-Click Preset Messages:'}</span>
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {QUICK_MESSAGES.map((message, idx) => {
                 const msgText = message[lang];
                 return (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => void handleSendChatMessage(msgText)}
-                  className="px-3 py-1.5 rounded-xl bg-orange-950/60 hover:bg-orange-900/80 text-orange-200 text-xs font-semibold border border-orange-300/40 transition text-left"
-                >
-                  {msgText}
-                </button>
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => void handleSendChatMessage(msgText)}
+                    className="p-3 rounded-2xl bg-stone-800/90 hover:bg-saffron-950/60 active:scale-98 text-stone-100 text-xs font-bold border border-stone-700 hover:border-saffron-500/50 shadow-sm transition text-left min-h-[48px] touch-target-48 flex items-center justify-between"
+                  >
+                    <span>{msgText}</span>
+                    <span className="text-[10px] text-saffron-400 font-extrabold uppercase shrink-0 ml-2">Send ➔</span>
+                  </button>
                 );
               })}
             </div>
