@@ -113,6 +113,15 @@ create table if not exists sos_alerts (
   created_at timestamptz default now()
 );
 
+create table if not exists broadcast_messages (
+  id uuid primary key default gen_random_uuid(),
+  message text not null check (char_length(message) between 1 and 220),
+  created_by uuid references profiles(id),
+  expires_at timestamptz,
+  active boolean not null default true,
+  created_at timestamptz default now()
+);
+
 create table if not exists presence_pings (
   id uuid primary key default gen_random_uuid(),
   node_id uuid references nodes(id),
@@ -138,13 +147,14 @@ alter table crowd_reports enable row level security;
 alter table item_requests enable row level security;
 alter table sightings enable row level security;
 alter table sos_alerts enable row level security;
+alter table broadcast_messages enable row level security;
 alter table presence_pings enable row level security;
 alter table live_locations enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['groups','nodes','profiles','volunteer_applications','crowd_reports','item_requests','sightings','sos_alerts','presence_pings','live_locations'] loop
+  foreach t in array array['groups','nodes','profiles','volunteer_applications','crowd_reports','item_requests','sightings','sos_alerts','broadcast_messages','presence_pings','live_locations'] loop
     execute format('drop policy if exists hackathon_all on %I', t);
   end loop;
 end $$;
@@ -157,7 +167,7 @@ begin
     select schemaname, tablename, policyname
     from pg_policies
     where schemaname = 'public'
-      and tablename in ('groups','nodes','profiles','volunteer_applications','crowd_reports','item_requests','sightings','sos_alerts','presence_pings','live_locations')
+      and tablename in ('groups','nodes','profiles','volunteer_applications','crowd_reports','item_requests','sightings','sos_alerts','broadcast_messages','presence_pings','live_locations')
   loop
     execute format('drop policy if exists %I on %I.%I', policy_record.policyname, policy_record.schemaname, policy_record.tablename);
   end loop;
@@ -223,6 +233,10 @@ create policy "anyone can read sos_alerts" on sos_alerts for select using (true)
 create policy "authenticated users can insert sos_alerts" on sos_alerts for insert with check (auth.uid() is not null and member_id = auth.uid());
 create policy "volunteers can resolve sos" on sos_alerts for update using (public.is_approved_volunteer()) with check (public.is_approved_volunteer());
 
+create policy "anyone can read active broadcasts" on broadcast_messages for select using (active = true and (expires_at is null or expires_at > now()));
+create policy "admins create broadcasts" on broadcast_messages for insert with check (public.is_admin() and created_by = auth.uid());
+create policy "admins manage broadcasts" on broadcast_messages for update using (public.is_admin()) with check (public.is_admin());
+
 create policy "anyone can read presence_pings" on presence_pings for select using (true);
 create policy "authenticated users can insert presence_pings" on presence_pings for insert with check (auth.uid() is not null);
 
@@ -237,7 +251,7 @@ create policy "groups and admins read live locations" on live_locations for sele
 -- Supabase Realtime only emits postgres_changes for tables in this publication.
 do $$
 begin
-  alter publication supabase_realtime add table crowd_reports, item_requests, sightings, sos_alerts, profiles, volunteer_applications, nodes, live_locations;
+  alter publication supabase_realtime add table crowd_reports, item_requests, sightings, sos_alerts, profiles, volunteer_applications, nodes, broadcast_messages, live_locations;
 exception
   when duplicate_object then null;
 end $$;
