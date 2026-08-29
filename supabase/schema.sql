@@ -195,7 +195,12 @@ create policy "authenticated users can create groups" on groups for insert with 
 create policy "anyone can read nodes" on nodes for select using (true);
 create policy "admins manage nodes" on nodes for all using (public.is_admin()) with check (public.is_admin());
 
-create policy "users read own profile" on profiles for select using (auth.uid() = id or public.is_admin() or public.is_in_my_group(group_id));
+create policy "users read own profile" on profiles for select using (
+  auth.uid() = id
+  or public.is_admin()
+  or public.is_approved_volunteer()
+  or public.is_in_my_group(group_id)
+);
 create policy "users update own profile" on profiles for update using (auth.uid() = id) with check (auth.uid() = id and role = 'pilgrim' and approved = false);
 create policy "admins manage profiles" on profiles for update using (public.is_admin()) with check (public.is_admin());
 
