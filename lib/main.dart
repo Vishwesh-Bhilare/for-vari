@@ -45,11 +45,6 @@ class _FullscreenWebViewState extends State<FullscreenWebView> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(NavigationDelegate())
       ..loadRequest(Uri.parse(vercelUrl));
-
-    final platformController = _controller.platform;
-    if (platformController is AndroidWebViewController) {
-      platformController.setDomStorageEnabled(true);
-    }
   }
 
   @override
