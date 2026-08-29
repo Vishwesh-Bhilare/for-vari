@@ -45,8 +45,10 @@ export async function saveMeshMessage(msg: MeshChatMessage) {
 
 export async function getMeshMessages(): Promise<MeshChatMessage[]> {
   const db = await dbPromise;
-  const messages = await db.getAll('mesh_messages');
-  return messages.sort((a, b) => b.timestamp - a.timestamp);
+  const messages = (await db.getAll('mesh_messages')) as MeshChatMessage[];
+  return messages
+    .map((message) => ({ ...message, type: message.type ?? 'text' as const }))
+    .sort((a, b) => b.timestamp - a.timestamp);
 }
 
 export async function saveMeshNews(news: MeshNewsBroadcast) {

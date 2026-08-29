@@ -12,6 +12,15 @@ import {
   saveMeshNews
 } from '../db';
 import { isSupabaseConfigured, supabase } from '../supabase';
+import {
+  VOICE_CHUNK_SIZE,
+  VOICE_NOTE_MAX_SECONDS,
+  VoiceChunkReassembler,
+  base64ToAudioSrc,
+  blobToBase64,
+  chunkVoiceMessage,
+  getPreferredVoiceMimeType
+} from '../meshVoice';
 import type {
   EmergencyContact,
   MeshChatMessage,
@@ -165,6 +174,16 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
   const [goodsServices, setGoodsServices] = useState<MeshGoodsService[]>([]);
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [chatText, setChatText] = useState('');
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceElapsedSeconds, setVoiceElapsedSeconds] = useState(0);
+  const [voiceError, setVoiceError] = useState('');
+  const [voiceChunkProgress, setVoiceChunkProgress] = useState<Record<string, { receivedChunks: number; totalChunks: number; status: 'receiving' | 'stalled' }>>({});
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceStartedAtRef = useRef<number>(0);
+  const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const voiceReassemblerRef = useRef(new VoiceChunkReassembler());
   // Real, currently-open WebRTC data-channel peers (this is the only mechanism
   // that actually carries messages between two different devices with no internet).
   const [connectedOfflinePeerCount, setConnectedOfflinePeerCount] = useState(0);
@@ -248,6 +267,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       if (packet.type === 'NEW_MESH_MESSAGE') {
         const msg = packet.payload as MeshChatMessage;
         const updatedMsg: MeshChatMessage = {
+          type: msg.type ?? 'text',
           ...msg,
           hop_count: msg.hop_count !== undefined ? msg.hop_count : currentHop,
           relay_path: msg.relay_path && msg.relay_path.length > 0 ? msg.relay_path : currentPath
@@ -269,6 +289,34 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
 
         if (navigator.onLine && isSupabaseConfigured) {
           void uploadMessageToGateway(updatedMsg);
+        }
+      } else if (packet.type === 'NEW_MESH_MESSAGE_CHUNK') {
+        const result = voiceReassemblerRef.current.accept(packet.payload as Parameters<VoiceChunkReassembler['accept']>[0]);
+        setVoiceChunkProgress((prev) => ({
+          ...prev,
+          [result.progress.messageId]: {
+            receivedChunks: result.progress.receivedChunks,
+            totalChunks: result.progress.totalChunks,
+            status: result.progress.status
+          }
+        }));
+        if (result.message) {
+          const completedMsg: MeshChatMessage = {
+            ...result.message,
+            hop_count: result.message.hop_count !== undefined ? result.message.hop_count : currentHop,
+            relay_path: result.message.relay_path && result.message.relay_path.length > 0 ? result.message.relay_path : currentPath
+          };
+          setVoiceChunkProgress((prev) => { const next = { ...prev }; delete next[completedMsg.id]; return next; });
+          setMeshMessages((prev) => [completedMsg, ...prev.filter((m) => m.id !== completedMsg.id)]);
+          void saveMeshMessage(completedMsg);
+          if (navigator.onLine && isSupabaseConfigured) void uploadMessageToGateway(completedMsg);
+        }
+        if (currentHop < 10) {
+          const relayedPacket = { ...packet, hopCount: currentHop, relayPath: currentPath };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
+          });
         }
       } else if (packet.type === 'NEW_SOS_ALERT') {
         const alert = packet.payload as SosAlert;
@@ -529,6 +577,23 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
 
   useEffect(() => () => stopQrScan(), []);
 
+  useEffect(() => () => {
+    if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const progress = voiceReassemblerRef.current.getAllProgress();
+      setVoiceChunkProgress(Object.fromEntries(progress.map((item) => [item.messageId, {
+        receivedChunks: item.receivedChunks,
+        totalChunks: item.totalChunks,
+        status: item.status
+      }])));
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Sync Gateway Node: Upload outward mesh messages & download outer world news/services to broadcast to mesh
   const syncGatewayUplinkAndDownlink = async () => {
     if (!navigator.onLine || !isSupabaseConfigured) return;
@@ -597,7 +662,11 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       await supabase.from('mesh_chat_relays').insert({
         sender_id: msg.sender_id,
         sender_name: msg.sender_name,
-        text: msg.text,
+        text: msg.text || null,
+        message_type: msg.type ?? 'text',
+        audio_base64: msg.type === 'voice' ? msg.audioData : null,
+        duration_seconds: msg.type === 'voice' ? msg.durationSeconds : null,
+        mime_type: msg.type === 'voice' ? msg.mimeType : null,
         lat: msg.lat,
         lng: msg.lng
       });
@@ -676,30 +745,34 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
 
   // Helper to send packets over both local BroadcastChannel & Supabase Realtime (Cross-Device)
   const broadcastMeshPacket = (type: string, payload: unknown, packetId: string) => {
-    const packet = {
-      type,
-      payload,
-      packetId,
-      hopCount: 0,
-      relayPath: [deviceIdRef.current]
-    };
+    const packets = type === 'NEW_MESH_MESSAGE' && (payload as MeshChatMessage).type === 'voice'
+      ? chunkVoiceMessage(payload as MeshChatMessage, VOICE_CHUNK_SIZE).map((chunk) => ({
+          type: 'NEW_MESH_MESSAGE_CHUNK',
+          payload: chunk,
+          packetId: `${packetId}-chunk-${chunk.chunkIndex}`,
+          hopCount: 0,
+          relayPath: [deviceIdRef.current]
+        }))
+      : [{ type, payload, packetId, hopCount: 0, relayPath: [deviceIdRef.current] }];
 
-    // 1. Local BroadcastChannel (same browser / tabs)
-    meshChannelRef.current?.postMessage(packet);
+    packets.forEach((packet) => {
+      // 1. Local BroadcastChannel (same browser / tabs)
+      meshChannelRef.current?.postMessage(packet);
 
-    // 2. Direct offline peer links created after a user gesture and pairing-code exchange
-    offlineDataChannelsRef.current.forEach((channel) => {
-      if (channel.readyState === 'open') channel.send(JSON.stringify(packet));
-    });
-
-    // 3. Realtime Channel (Cross-device across Wi-Fi / Internet)
-    if (realtimeChannelRef.current) {
-      void realtimeChannelRef.current.send({
-        type: 'broadcast',
-        event: 'mesh_packet',
-        payload: packet
+      // 2. Direct offline peer links created after a user gesture and pairing-code exchange
+      offlineDataChannelsRef.current.forEach((channel) => {
+        if (channel.readyState === 'open') channel.send(JSON.stringify(packet));
       });
-    }
+
+      // 3. Realtime Channel (Cross-device across Wi-Fi / Internet)
+      if (realtimeChannelRef.current) {
+        void realtimeChannelRef.current.send({
+          type: 'broadcast',
+          event: 'mesh_packet',
+          payload: packet
+        });
+      }
+    });
   };
 
   // Dispatch SOS Alert
@@ -747,6 +820,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         sos_id: finalAlert.id,
         sender_id: currentMemberId || 'guest',
         sender_name: profile?.display_name || 'Varkari Pilgrim (SOS)',
+        type: 'text',
         sender_phone: profile?.phone,
         text: `🚩 [SOS - ${CATEGORY_CONFIG[activeCategory].icon}] ${sosPayload.note}. GPS: ${lat?.toFixed(5)}, ${lng?.toFixed(5)} (±${Math.round(accuracy || 0)}m)`,
         category: activeCategory,
@@ -843,6 +917,86 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
     if (!textToSend) setChatText('');
 
     broadcastMeshPacket('NEW_MESH_MESSAGE', msg, packetId);
+  };
+
+
+  const stopVoiceRecording = (cancel = false) => {
+    if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+    voiceTimerRef.current = null;
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.onstop = async () => {
+        voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+        voiceStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        setIsRecordingVoice(false);
+        if (cancel) return;
+        try {
+          const mimeType = recorder.mimeType || getPreferredVoiceMimeType() || 'audio/webm';
+          const blob = new Blob(voiceChunksRef.current, { type: mimeType });
+          const durationSeconds = Math.min(VOICE_NOTE_MAX_SECONDS, Math.max(1, (Date.now() - voiceStartedAtRef.current) / 1000));
+          const audioData = await blobToBase64(blob);
+          const packetId = `mesh-voice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          const msg: MeshChatMessage = {
+            id: packetId,
+            sender_id: currentMemberId || 'guest-varkari',
+            sender_name: profile?.display_name || 'Varkari Pilgrim',
+            sender_phone: profile?.phone,
+            type: 'voice',
+            text: '',
+            audioData,
+            durationSeconds,
+            mimeType,
+            lat: position?.coords.latitude,
+            lng: position?.coords.longitude,
+            accuracy: position?.coords.accuracy,
+            timestamp: Date.now(),
+            via: 'mesh',
+            hop_count: 0,
+            max_hops: 10,
+            origin_device_id: deviceIdRef.current,
+            relay_path: [deviceIdRef.current]
+          };
+          markPacketSeen(packetId);
+          setMeshMessages((prev) => [msg, ...prev]);
+          await saveMeshMessage(msg);
+          broadcastMeshPacket('NEW_MESH_MESSAGE', msg, packetId);
+        } catch (err) {
+          setVoiceError(err instanceof Error ? err.message : 'Could not send voice note.');
+        }
+      };
+      recorder.stop();
+    }
+  };
+
+  const startVoiceRecording = async () => {
+    setVoiceError('');
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setVoiceError(lang === 'mr' ? 'या ब्राउझरमध्ये आवाज रेकॉर्डिंग उपलब्ध नाही.' : 'Voice recording is not available in this browser.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredMimeType = getPreferredVoiceMimeType();
+      const recorder = new MediaRecorder(stream, preferredMimeType ? { mimeType: preferredMimeType } : undefined);
+      voiceChunksRef.current = [];
+      voiceStartedAtRef.current = Date.now();
+      voiceStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) voiceChunksRef.current.push(event.data);
+      };
+      recorder.start(1000);
+      setVoiceElapsedSeconds(0);
+      setIsRecordingVoice(true);
+      voiceTimerRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - voiceStartedAtRef.current) / 1000);
+        setVoiceElapsedSeconds(Math.min(elapsed, VOICE_NOTE_MAX_SECONDS));
+        if (elapsed >= VOICE_NOTE_MAX_SECONDS) stopVoiceRecording(false);
+      }, 250);
+    } catch (err) {
+      setVoiceError(lang === 'mr' ? 'माइक परवानगी नाकारली किंवा उपलब्ध नाही.' : err instanceof Error ? err.message : 'Microphone permission denied or unavailable.');
+    }
   };
 
   // Create Goods & Services Mesh Post
@@ -1123,6 +1277,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       id: `resolve-sos-${Date.now()}`,
       sender_id: currentMemberId || 'guest',
       sender_name: profile?.display_name || 'Varkari Pilgrim',
+      type: 'text',
       text: '✅ [SOS RESOLVED] मी आता सुरक्षित आहे (SOS alert resolved & safe).',
       timestamp: Date.now(),
       via: 'mesh',
@@ -1670,12 +1825,45 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
             />
             <button
               type="button"
+              onClick={() => isRecordingVoice ? stopVoiceRecording(false) : void startVoiceRecording()}
+              className={`px-3 py-2.5 rounded-xl text-white text-xs font-bold shadow transition ${isRecordingVoice ? 'bg-red-600 animate-pulse' : 'bg-stone-700 hover:bg-stone-600'}`}
+              aria-label={lang === 'mr' ? 'आवाज रेकॉर्ड करा' : 'Record voice note'}
+            >
+              🎙️
+            </button>
+            <button
+              type="button"
               onClick={() => void handleSendChatMessage()}
               className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold shadow transition"
             >
               {lang === 'mr' ? 'पाठवा' : 'Send'}
             </button>
           </div>
+          {Object.values(voiceChunkProgress).length > 0 && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-[11px] font-bold text-amber-100">
+              {Object.entries(voiceChunkProgress).map(([id, progress]) => (
+                <div key={id}>
+                  {progress.status === 'stalled'
+                    ? lang === 'mr' ? 'व्हॉइस नोट अर्धवट आहे — अजून भाग येऊ शकतात.' : 'Voice note incomplete — waiting for more chunks.'
+                    : lang === 'mr' ? `व्हॉइस नोट मिळत आहे… ${progress.receivedChunks}/${progress.totalChunks}` : `Receiving voice note… ${progress.receivedChunks}/${progress.totalChunks}`}
+                </div>
+              ))}
+            </div>
+          )}
+          {(isRecordingVoice || voiceError) && (
+            <div className="rounded-xl border border-stone-700 bg-stone-800 p-3 text-xs text-stone-100">
+              {isRecordingVoice ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between font-bold">
+                    <span>🔴 {lang === 'mr' ? 'रेकॉर्डिंग…' : 'Recording…'} {voiceElapsedSeconds}s</span>
+                    <span>{VOICE_NOTE_MAX_SECONDS - voiceElapsedSeconds}s</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-stone-700"><div className="h-2 rounded-full bg-red-500" style={{ width: `${(voiceElapsedSeconds / VOICE_NOTE_MAX_SECONDS) * 100}%` }} /></div>
+                  <button type="button" onClick={() => stopVoiceRecording(true)} className="text-[11px] font-bold text-red-300 underline">{lang === 'mr' ? 'रद्द करा' : 'Cancel'}</button>
+                </div>
+              ) : <span className="text-red-300">{voiceError}</span>}
+            </div>
+          )}
 
           {/* Chat Feed */}
           <div className="max-h-80 overflow-y-auto space-y-3 pr-1 divide-y divide-stone-800">
@@ -1705,7 +1893,21 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
                     </span>
                   </div>
 
-                  <p className="text-xs font-medium text-stone-100 leading-relaxed">{msg.text}</p>
+                  {(msg.type ?? 'text') === 'voice' ? (
+                    <div className="rounded-2xl border border-orange-500/30 bg-orange-950/30 p-3 text-stone-100">
+                      <div className="mb-2 flex items-center justify-between text-[11px] font-bold text-orange-200">
+                        <span>🎙️ {lang === 'mr' ? 'व्हॉइस नोट' : 'Voice note'}</span>
+                        <span>{Math.round(msg.durationSeconds ?? 0)}s</span>
+                      </div>
+                      {msg.audioData ? (
+                        <audio controls preload="metadata" src={base64ToAudioSrc(msg.audioData, msg.mimeType)} className="w-full" />
+                      ) : (
+                        <p className="text-[11px] text-amber-200">{lang === 'mr' ? 'व्हॉइस नोट मिळत आहे…' : 'Receiving voice note…'}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs font-medium text-stone-100 leading-relaxed">{msg.text}</p>
+                  )}
 
                   {/* Multi-Hop Relay Information Trace */}
                   <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-stone-500">

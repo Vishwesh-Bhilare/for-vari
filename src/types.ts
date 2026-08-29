@@ -158,13 +158,21 @@ export interface SosAlert {
   gateway_id?: string;
 }
 
+export type MeshChatMessageType = 'text' | 'voice';
+
 export interface MeshChatMessage {
   id: string;
   sos_id?: string | number;
   sender_id: string;
   sender_name: string;
   sender_phone?: string;
+  type?: MeshChatMessageType;
   text: string;
+  audioData?: string;
+  durationSeconds?: number;
+  mimeType?: string;
+  reassemblyStatus?: 'receiving' | 'stalled';
+  reassemblyProgress?: { receivedChunks: number; totalChunks: number };
   category?: SosCategory;
   lat?: number;
   lng?: number;
