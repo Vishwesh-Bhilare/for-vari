@@ -722,16 +722,16 @@ function App() {
               <span className="hidden sm:inline">{isSunlightMode ? 'Sunlight ON' : 'High Contrast'}</span>
             </button>
             <nav className="hidden lg:flex items-center gap-1">
-              <button onClick={() => changeView('pilgrim')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'pilgrim' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Pilgrim view</button>
-              <button onClick={() => changeView('news')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'news' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>📰 Live News</button>
-              <button onClick={() => changeView('helplines')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'helplines' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>📞 Helplines</button>
-              <button onClick={() => changeView('sos_mesh')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'sos_mesh' ? 'bg-red-600 text-white' : 'text-red-400 hover:bg-red-900/40'}`}>SOS mesh</button>
-              <button onClick={() => changeView('admin')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'admin' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Admin</button>
+              <button onClick={() => changeView('pilgrim')} className={`rounded-xl px-4 py-2 text-sm font-extrabold transition-all ${view === 'pilgrim' ? 'bg-orange-500 text-white shadow-md' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Pilgrim view</button>
+              <button onClick={() => changeView('news')} className={`rounded-xl px-4 py-2 text-sm font-extrabold transition-all ${view === 'news' ? 'bg-orange-500 text-white shadow-md' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>📰 Live News</button>
+              <button onClick={() => changeView('helplines')} className={`rounded-xl px-4 py-2 text-sm font-extrabold transition-all ${view === 'helplines' ? 'bg-orange-500 text-white shadow-md' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>📞 Helplines</button>
+              <button onClick={() => changeView('sos_mesh')} className={`rounded-xl px-4 py-2 text-sm font-extrabold transition-all ${view === 'sos_mesh' ? 'bg-red-600 text-white shadow-md' : 'text-red-400 hover:bg-red-900/40'}`}>SOS mesh</button>
+              <button onClick={() => changeView('admin')} className={`rounded-xl px-4 py-2 text-sm font-extrabold transition-all ${view === 'admin' ? 'bg-orange-500 text-white shadow-md' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Admin</button>
             </nav>
             {session ? (
-              <button onClick={() => void handleSignOut()} className="flex h-8 w-8 items-center justify-center rounded-full bg-saffron-600 text-xs font-bold text-white">{(profile?.display_name ?? session.user.email ?? '?').slice(0, 2).toUpperCase()}</button>
+              <button onClick={() => void handleSignOut()} className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-500 text-xs font-bold text-white shadow font-mono">{(profile?.display_name ?? session.user.email ?? '?').slice(0, 2).toUpperCase()}</button>
             ) : (
-              <button onClick={() => setShowAuthModal(true)} className="rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-semibold text-stone-300">Sign in</button>
+              <button onClick={() => setShowAuthModal(true)} className="rounded-xl bg-orange-500 px-3.5 py-2 text-xs font-black text-white hover:bg-orange-600 transition shadow">Sign in</button>
             )}
           </div>
         </div>
@@ -740,7 +740,7 @@ function App() {
       {(notice || authError || profileError || applicationError) && <div className={`mx-4 mt-3 rounded-xl border p-3 text-sm font-semibold ${notice?.type === 'success' ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'}`}>{notice?.text ?? authError ?? profileError ?? applicationError}</div>}
       {view === 'admin' ? <div className="min-h-screen bg-saffron-50 px-4 py-3 pb-20 lg:px-8 lg:pb-4"><h2 className="mb-3 text-xl font-extrabold text-stone-900">Admin dashboard</h2>{role === 'admin' && <><p className="mb-3 text-sm text-stone-600">Live locations for all pilgrims who have granted device permission.</p><div id="map" className="mb-4 h-[320px] w-full overflow-hidden rounded-2xl bg-cream-100" /></>}<AdminLogin userId={currentMemberId} userEmail={session?.user?.email} role={role} activeSosCount={activeSosCount} registeredProfileCount={registeredProfileCount} routeStationCount={nodes.length} nodes={nodes} broadcastMessages={activeBroadcasts} onNodesChange={setNodes} onBroadcastCreated={(broadcast) => setBroadcastMessages((messages) => [broadcast, ...messages.filter((message) => message.id !== broadcast.id)].slice(0, 3))} onDeleteBroadcast={(id) => setBroadcastMessages((messages) => messages.filter((m) => m.id !== id))} /></div> : view === 'news' ? <div className="min-h-screen bg-saffron-50 p-4 pb-20 max-w-7xl mx-auto lg:p-6"><LiveNews /></div> : view === 'helplines' ? <div className="min-h-screen bg-saffron-50 p-4 pb-20 max-w-7xl mx-auto lg:p-6"><EmergencyContacts /></div> : view === 'sos_mesh' ? <div className="min-h-screen bg-slate-100 pb-20 lg:pb-4"><VarkariSosMesh currentMemberId={currentMemberId} profile={profile} position={position} nodes={nodes} nearestNodeId={nearestNodeId} onSosCreated={(newAlert) => setSosAlerts((prev) => [newAlert, ...prev])} onRequestLocationPermission={requestLocation} geoError={geoError} onSetManualLocation={setManualLocation} /></div> : <div className="pb-20 lg:pb-4">
         {/* Rich Pilgrimage Hero Header */}
-        <section className="mx-4 mt-4 lg:mx-4 rounded-3xl bg-gradient-to-r from-amber-700 via-saffron-600 to-amber-800 p-6 text-white shadow-xl relative overflow-hidden">
+        <section className="mx-4 mt-4 lg:mx-4 rounded-3xl bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 p-6 text-white shadow-xl relative overflow-hidden shadow-saffron-glow">
           <div className="flex flex-wrap items-center justify-between gap-4 relative z-10">
             <div>
               <span className="text-[11px] font-black uppercase tracking-widest text-amber-200 bg-black/20 px-3 py-1 rounded-full border border-white/20">
