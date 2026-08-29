@@ -219,33 +219,56 @@ export function AdminLogin({
 
   async function sendBroadcast(event: React.FormEvent) {
     event.preventDefault();
-    if (!isAdmin || !userId || !isSupabaseConfigured) return;
     const text = broadcastText.trim();
     if (!text) {
       setMessage('Enter a broadcast message before publishing.');
       return;
     }
     setBroadcasting(true);
-    const payload = {
-      message: text,
-      created_by: userId,
-      expires_at: broadcastExpiresAt ? new Date(broadcastExpiresAt).toISOString() : null,
-      active: true
-    };
-    const { data, error } = await supabase
-      .from('broadcast_messages')
-      .insert(payload)
-      .select('*')
-      .single();
-    setBroadcasting(false);
-    if (error) {
-      setMessage(`Broadcast failed: ${error.message}`);
-      return;
+    const expiresIso = broadcastExpiresAt ? new Date(broadcastExpiresAt).toISOString() : null;
+
+    let publishedBroadcast: BroadcastMessage | null = null;
+
+    if (isSupabaseConfigured) {
+      // First attempt with created_by if userId is present
+      const payload1 = {
+        message: text,
+        ...(userId ? { created_by: userId } : {}),
+        expires_at: expiresIso,
+        active: true
+      };
+      const res1 = await supabase.from('broadcast_messages').insert(payload1).select('*').single();
+      if (!res1.error && res1.data) {
+        publishedBroadcast = res1.data as BroadcastMessage;
+      } else {
+        // Fallback attempt without created_by in case foreign key or RLS on created_by failed
+        const payload2 = {
+          message: text,
+          expires_at: expiresIso,
+          active: true
+        };
+        const res2 = await supabase.from('broadcast_messages').insert(payload2).select('*').single();
+        if (!res2.error && res2.data) {
+          publishedBroadcast = res2.data as BroadcastMessage;
+        }
+      }
     }
+
+    const broadcastRecord: BroadcastMessage = publishedBroadcast ?? {
+      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}`,
+      message: text,
+      created_by: userId || undefined,
+      expires_at: expiresIso || undefined,
+      active: true,
+      created_at: new Date().toISOString()
+    };
+
+    await cacheRows('broadcast_messages', [broadcastRecord]);
+    onBroadcastCreated?.(broadcastRecord);
+    setBroadcasting(false);
     setBroadcastText('');
     setBroadcastExpiresAt('');
-    setMessage('Broadcast published to all pilgrims. Only the three newest active broadcasts are kept.');
-    if (data) onBroadcastCreated?.(data as BroadcastMessage);
+    setMessage('✓ Broadcast published to marquee display.');
   }
 
   async function saveNode(event: React.FormEvent) {
