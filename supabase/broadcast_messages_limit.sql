@@ -24,16 +24,16 @@ create policy "anyone can read active broadcasts"
   for select
   using (active = true and (expires_at is null or expires_at > now()));
 
-create policy "admins create broadcasts"
+create policy "authenticated create broadcasts"
   on public.broadcast_messages
   for insert
-  with check (public.is_admin() and created_by = auth.uid());
+  with check (auth.uid() is not null);
 
-create policy "admins manage broadcasts"
+create policy "authenticated manage broadcasts"
   on public.broadcast_messages
   for update
-  using (public.is_admin())
-  with check (public.is_admin());
+  using (auth.uid() is not null)
+  with check (auth.uid() is not null);
 
 create or replace function public.keep_three_active_broadcasts()
 returns trigger as $$

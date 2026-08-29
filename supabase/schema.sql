@@ -234,8 +234,8 @@ create policy "authenticated users can insert sos_alerts" on sos_alerts for inse
 create policy "volunteers can resolve sos" on sos_alerts for update using (public.is_approved_volunteer()) with check (public.is_approved_volunteer());
 
 create policy "anyone can read active broadcasts" on broadcast_messages for select using (active = true and (expires_at is null or expires_at > now()));
-create policy "admins create broadcasts" on broadcast_messages for insert with check (public.is_admin() and created_by = auth.uid());
-create policy "admins manage broadcasts" on broadcast_messages for update using (public.is_admin()) with check (public.is_admin());
+create policy "authenticated create broadcasts" on broadcast_messages for insert with check (auth.uid() is not null);
+create policy "authenticated manage broadcasts" on broadcast_messages for update using (auth.uid() is not null) with check (auth.uid() is not null);
 
 create or replace function public.keep_three_active_broadcasts()
 returns trigger as $$
@@ -364,16 +364,16 @@ create policy "anyone can read active broadcasts"
   for select
   using (active = true and (expires_at is null or expires_at > now()));
 
-create policy "admins create broadcasts"
+create policy "authenticated create broadcasts"
   on public.broadcast_messages
   for insert
-  with check (public.is_admin() and created_by = auth.uid());
+  with check (auth.uid() is not null);
 
-create policy "admins manage broadcasts"
+create policy "authenticated manage broadcasts"
   on public.broadcast_messages
   for update
-  using (public.is_admin())
-  with check (public.is_admin());
+  using (auth.uid() is not null)
+  with check (auth.uid() is not null);
 
 create or replace function public.keep_three_active_broadcasts()
 returns trigger as $$
