@@ -154,7 +154,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[2000] flex items-center justify-center bg-stone-900/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[2000] flex items-end justify-center bg-stone-900/60 backdrop-blur-sm sm:items-center"
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
@@ -162,29 +162,32 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
     >
       <div
         ref={modalRef}
-        className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
+        className="relative w-full translate-y-0 rounded-t-3xl bg-white px-5 pt-2 pb-8 shadow-2xl transition-transform duration-300 ease-out sm:max-w-md sm:rounded-3xl sm:p-7"
       >
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 rounded-full bg-stone-100 p-2 text-xs font-bold text-stone-500 hover:bg-stone-200 transition-colors"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-stone-400 hover:bg-stone-100 hover:text-stone-600 transition-colors"
           aria-label="Close modal"
         >
           ✕
         </button>
 
+        <div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-stone-200 sm:hidden" />
+
         {/* Title */}
-        <h2 id="auth-modal-title" className="text-2xl font-extrabold text-stone-900 mb-6">
+        <h2 id="auth-modal-title" className="mb-1 text-xl font-extrabold text-stone-900">
           Welcome
         </h2>
+        <p className="mb-5 text-sm text-stone-500">Sign in to coordinate safely along the Wari route.</p>
 
         {/* Tabs */}
-        <div className="flex rounded-xl bg-stone-100 p-1 mb-6">
+        <div className="mb-5 flex rounded-xl border border-cream-200 bg-saffron-50 p-1">
           <button
-            className={`flex-1 rounded-lg px-4 py-2 text-sm font-bold transition-all ${
+            className={`flex-1 rounded-lg px-4 py-2 text-sm font-bold transition-colors duration-150 ${
               activeTab === 'signin'
-                ? 'bg-white text-orange-600 shadow-sm'
-                : 'text-stone-600 hover:text-stone-900'
+                ? 'bg-white text-saffron-600 shadow-sm'
+                : 'text-stone-500 hover:text-stone-800'
             }`}
             onClick={() => {
               setActiveTab('signin');
@@ -195,10 +198,10 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             Sign In
           </button>
           <button
-            className={`flex-1 rounded-lg px-4 py-2 text-sm font-bold transition-all ${
+            className={`flex-1 rounded-lg px-4 py-2 text-sm font-bold transition-colors duration-150 ${
               activeTab === 'register'
-                ? 'bg-white text-orange-600 shadow-sm'
-                : 'text-stone-600 hover:text-stone-900'
+                ? 'bg-white text-saffron-600 shadow-sm'
+                : 'text-stone-500 hover:text-stone-800'
             }`}
             onClick={() => {
               setActiveTab('register');
@@ -209,10 +212,10 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             Register
           </button>
           <button
-            className={`flex-1 rounded-lg px-4 py-2 text-sm font-bold transition-all ${
+            className={`flex-1 rounded-lg px-4 py-2 text-sm font-bold transition-colors duration-150 ${
               activeTab === 'reset'
-                ? 'bg-white text-orange-600 shadow-sm'
-                : 'text-stone-600 hover:text-stone-900'
+                ? 'bg-white text-saffron-600 shadow-sm'
+                : 'text-stone-500 hover:text-stone-800'
             }`}
             onClick={() => {
               setActiveTab('reset');
@@ -240,13 +243,13 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
         {activeTab === 'signin' && (
           <form className="space-y-4" onSubmit={handleSignIn}>
             <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1">
+              <label className="mb-1.5 block text-xs font-semibold text-stone-600">
                 Email
               </label>
               <input
                 ref={firstInputRef}
                 type="email"
-                className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
+                className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 placeholder="you@example.com"
                 value={signInEmail}
                 onChange={(e) => setSignInEmail(e.target.value)}
@@ -255,12 +258,12 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1">
+              <label className="mb-1.5 block text-xs font-semibold text-stone-600">
                 Password
               </label>
               <input
                 type="password"
-                className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
+                className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 placeholder="••••••••"
                 value={signInPassword}
                 onChange={(e) => setSignInPassword(e.target.value)}
@@ -270,7 +273,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             </div>
             <button
               type="submit"
-              className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm hover:bg-saffron-500 active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               disabled={loading}
             >
               {loading ? 'Signing In...' : 'Sign In'}
@@ -282,13 +285,13 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
         {activeTab === 'reset' && (
           <form className="space-y-4" onSubmit={handlePasswordReset}>
             <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1">
+              <label className="mb-1.5 block text-xs font-semibold text-stone-600">
                 Account Email
               </label>
               <input
                 ref={firstInputRef}
                 type="email"
-                className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
+                className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 placeholder="you@example.com"
                 value={resetEmail}
                 onChange={(e) => setResetEmail(e.target.value)}
@@ -298,7 +301,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             </div>
             <button
               type="submit"
-              className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm hover:bg-saffron-500 active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               disabled={loading}
             >
               {loading ? 'Sending Reset...' : 'Send Password Reset'}
@@ -310,13 +313,13 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
         {activeTab === 'register' && (
           <form className="space-y-4" onSubmit={handleRegister}>
             <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1">
+              <label className="mb-1.5 block text-xs font-semibold text-stone-600">
                 Display Name
               </label>
               <input
                 ref={firstInputRef}
                 type="text"
-                className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
+                className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 placeholder="Your name"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -325,12 +328,12 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1">
+              <label className="mb-1.5 block text-xs font-semibold text-stone-600">
                 Email
               </label>
               <input
                 type="email"
-                className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
+                className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 placeholder="you@example.com"
                 value={registerEmail}
                 onChange={(e) => setRegisterEmail(e.target.value)}
@@ -339,12 +342,12 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1">
+              <label className="mb-1.5 block text-xs font-semibold text-stone-600">
                 Password
               </label>
               <input
                 type="password"
-                className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
+                className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 placeholder="Minimum 6 characters"
                 value={registerPassword}
                 onChange={(e) => setRegisterPassword(e.target.value)}
@@ -354,12 +357,12 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-stone-700 mb-1">
+              <label className="mb-1.5 block text-xs font-semibold text-stone-600">
                 Confirm Password
               </label>
               <input
                 type="password"
-                className="w-full rounded-xl border border-stone-300 p-3 text-stone-900 focus:border-orange-500 focus:outline-none disabled:opacity-50"
+                className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 placeholder="Confirm your password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -369,7 +372,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             </div>
             <button
               type="submit"
-              className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow hover:bg-orange-700 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm hover:bg-saffron-500 active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               disabled={loading}
             >
               {loading ? 'Creating Account...' : 'Create Account'}

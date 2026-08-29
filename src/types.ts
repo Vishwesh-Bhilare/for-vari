@@ -81,17 +81,95 @@ export interface Sighting {
   pending?: boolean;
 }
 
+export type SosCategory = 'medical' | 'lost' | 'accident' | 'crowd' | 'water_food' | 'general';
+export type PacketType = 'sos_outward' | 'chat_outward' | 'news_inward' | 'goods_services_inward';
+
 export interface SosAlert {
   id?: string | number;
   member_id?: string;
   node_id?: string;
   lat?: number;
   lng?: number;
-  status?: 'active' | 'resolved';
+  accuracy?: number;
+  altitude?: number | null;
+  category?: SosCategory;
+  note?: string;
+  display_name?: string;
+  phone?: string;
+  status?: 'active' | 'responding' | 'resolved';
+  responder_id?: string;
+  responder_name?: string;
+  responder_phone?: string;
+  responder_lat?: number;
+  responder_lng?: number;
+  accepted_at?: string;
   resolved_by?: string;
   resolved_at?: string;
   created_at?: string;
   pending?: boolean;
+  relayed_by?: string;
+  broadcast_method?: 'bluetooth' | 'mesh' | 'web' | 'direct';
+  // Multi-Hop Store & Forward Mesh fields
+  hop_count?: number;
+  max_hops?: number;
+  origin_device_id?: string;
+  relay_path?: string[];
+  delivered_to_gateway?: boolean;
+  gateway_id?: string;
+}
+
+export interface MeshChatMessage {
+  id: string;
+  sos_id?: string | number;
+  sender_id: string;
+  sender_name: string;
+  sender_phone?: string;
+  text: string;
+  category?: SosCategory;
+  lat?: number;
+  lng?: number;
+  accuracy?: number;
+  timestamp: number;
+  is_sos?: boolean;
+  via: 'bluetooth' | 'mesh' | 'web';
+  relayed_by?: string;
+  // Multi-Hop Store & Forward Mesh fields
+  hop_count?: number;
+  max_hops?: number;
+  origin_device_id?: string;
+  relay_path?: string[];
+  delivered_to_gateway?: boolean;
+  gateway_id?: string;
+  packet_type?: PacketType;
+}
+
+export interface MeshNewsBroadcast {
+  id: string;
+  title: string;
+  content: string;
+  category: 'disaster_update' | 'medical_camp' | 'food_distribution' | 'weather' | 'lost_found';
+  publisher: string;
+  timestamp: number;
+  hop_count: number;
+  gateway_id?: string;
+  origin_server?: boolean;
+}
+
+export interface MeshGoodsService {
+  id: string;
+  type: 'request' | 'offer';
+  category: 'water' | 'food' | 'medical' | 'shelter' | 'charging' | 'transport';
+  title: string;
+  description: string;
+  location_name?: string;
+  lat?: number;
+  lng?: number;
+  contact_phone?: string;
+  requester_name?: string;
+  status: 'open' | 'fulfilled';
+  timestamp: number;
+  hop_count: number;
+  gateway_synced?: boolean;
 }
 
 export interface OutboxEntry {
@@ -106,4 +184,16 @@ export interface OutboxEntry {
   lastError?: string;
 }
 
+export interface EmergencyContact {
+  id: string;
+  title: string;
+  phone: string;
+  category: 'ambulance' | 'police' | 'control_room' | 'medical' | 'other';
+  icon?: string;
+  description?: string;
+}
+
 export type StoredRecord = CrowdReport | ItemRequest | Sighting | SosAlert;
+
+
+
