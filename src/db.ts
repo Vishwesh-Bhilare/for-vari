@@ -38,6 +38,18 @@ export async function deleteEmergencyContact(id: string) {
   await db.delete('emergency_contacts', id);
 }
 
+export async function deleteVolunteerApplication(id: string) {
+  const db = await dbPromise;
+  await db.delete('volunteer_applications', id);
+  if (isSupabaseConfigured) {
+    try {
+      await supabase.from('volunteer_applications').delete().eq('id', id);
+    } catch (err) {
+      console.warn('Failed to delete volunteer application from Supabase:', err);
+    }
+  }
+}
+
 export async function saveMeshMessage(msg: MeshChatMessage) {
   const db = await dbPromise;
   await db.put('mesh_messages', msg);

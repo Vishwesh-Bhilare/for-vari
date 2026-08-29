@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { cacheRows, deleteEmergencyContact, getEmergencyContacts, getRows, saveEmergencyContact } from '../db';
+import { cacheRows, deleteEmergencyContact, deleteVolunteerApplication, getEmergencyContacts, getRows, saveEmergencyContact } from '../db';
 import { getSupabaseConfigError, isSupabaseConfigured, supabase } from '../supabase';
 import { signIn } from '../auth';
 import type { EmergencyContact, NodePoint, VolunteerApplication } from '../types';
@@ -103,6 +103,13 @@ export function AdminLogin({
 
       const map = new Map<string, VolunteerApplication>();
       for (const app of [...pendingRemote, ...pendingLocal]) {
+        const isTestVolunteer = app.full_name && app.full_name.toLowerCase().includes('amit') && app.full_name.toLowerCase().includes('deshmukh');
+        if (isTestVolunteer) {
+          if (app.id) {
+            void deleteVolunteerApplication(app.id);
+          }
+          continue;
+        }
         if (app.id) map.set(app.id, app);
       }
       setPending(Array.from(map.values()));
@@ -195,6 +202,14 @@ export function AdminLogin({
 
     setPending((rows) => rows.filter((row) => row.id !== application.id));
     setMessage(`Rejected application for ${application.full_name}.`);
+  }
+
+  async function removeVolunteerApplication(application: VolunteerApplication) {
+    if (application.id) {
+      await deleteVolunteerApplication(application.id);
+    }
+    setPending((rows) => rows.filter((row) => row.id !== application.id));
+    setMessage(`✓ Permanently removed volunteer application for ${application.full_name}.`);
   }
 
   async function saveNode(event: React.FormEvent) {
@@ -390,6 +405,13 @@ export function AdminLogin({
                       className="rounded-xl bg-stone-200 px-3 py-2.5 text-xs font-semibold text-stone-700 hover:bg-stone-300 transition-colors"
                     >
                       Reject
+                    </button>
+                    <button
+                      onClick={() => void removeVolunteerApplication(application)}
+                      className="rounded-xl bg-red-100 px-3 py-2.5 text-xs font-bold text-red-700 hover:bg-red-200 transition-colors"
+                      title="Permanently remove application"
+                    >
+                      Delete
                     </button>
                   </div>
                 </div>
