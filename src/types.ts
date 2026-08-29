@@ -15,6 +15,12 @@ export interface Profile {
   created_at?: string;
 }
 
+export interface Group {
+  id: string;
+  group_code: string;
+  created_at?: string;
+}
+
 export interface LiveLocation {
   user_id: string;
   lat: number;
@@ -203,5 +209,4 @@ export interface EmergencyContact {
 }
 
 export type StoredRecord = CrowdReport | ItemRequest | Sighting | SosAlert;
-
 
