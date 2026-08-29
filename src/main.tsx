@@ -653,6 +653,32 @@ function App() {
       text: `🤝 Matched! Meeting location: ${match.name}`
     });
   }
+
+  async function simulatePeerOffer(item: ItemRequest) {
+    const reqLat = item.lat ?? position?.coords.latitude ?? 18.5204;
+    const reqLng = item.lng ?? position?.coords.longitude ?? 73.8567;
+    const helpLat = reqLat + 0.015;
+    const helpLng = reqLng + 0.015;
+
+    const match = findOptimalMeetingNode(reqLat, reqLng, helpLat, helpLng, nodes);
+
+    await updateItemRequest(item, {
+      status: 'accepted',
+      accepted_by: 'helper-simulated-007',
+      accepted_at: new Date().toISOString(),
+      accepter_lat: helpLat,
+      accepter_lng: helpLng,
+      meeting_node_id: match.id,
+      meeting_node_name: match.name,
+      meeting_node_lat: match.lat,
+      meeting_node_lng: match.lng
+    });
+
+    setNotice({
+      type: 'success',
+      text: `🤝 ML Engine predicted optimal meeting point: ${match.name}`
+    });
+  }
   async function completeItem(item: ItemRequest) {
     if (!session) {
       setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
@@ -1008,13 +1034,22 @@ function App() {
                                       )}
 
                                       {i.status === 'open' && isRequester && (
-                                        <button
-                                          type="button"
-                                          onClick={() => void cancelItem(i)}
-                                          className="w-full py-1.5 text-xs font-bold text-stone-500 hover:text-stone-800 transition"
-                                        >
-                                          Cancel Request
-                                        </button>
+                                        <div className="flex flex-col gap-2 w-full">
+                                          <button
+                                            type="button"
+                                            onClick={() => void simulatePeerOffer(i)}
+                                            className="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-black shadow-md transition flex items-center justify-center gap-1.5 active:scale-95"
+                                          >
+                                            <span>🤖 Predict Meeting Location (ML Engine)</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void cancelItem(i)}
+                                            className="w-full py-1 text-xs font-bold text-stone-500 hover:text-stone-800 transition text-center"
+                                          >
+                                            Cancel Request
+                                          </button>
+                                        </div>
                                       )}
 
                                       {i.status === 'accepted' && !isRequester && !isAccepter && (
