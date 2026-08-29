@@ -852,6 +852,98 @@ function App() {
               ))}
             </section>
           </div>
+
+          {/* Right Sidebar: Crowd Density, Traffic Status, Group Nodes */}
+          <aside className="hidden space-y-5 lg:block">
+            {/* Crowd Density Card */}
+            <div className="rounded-3xl border border-stone-200/80 bg-white p-5 shadow-md space-y-3 hover-lift">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-black text-stone-900 flex items-center gap-2">
+                  <span>👥</span> Crowd Density
+                </h3>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-saffron-50 text-saffron-700 px-2.5 py-0.5 rounded-full border border-saffron-200">
+                  Live Updates
+                </span>
+              </div>
+              <div className="space-y-2">
+                {latestReports.map(({node,density}) => (
+                  <div key={node.id} className="flex items-center justify-between p-3 rounded-2xl bg-stone-50 border border-stone-200/60 hover:bg-stone-100/80 transition">
+                    <span className="flex items-center gap-2.5 font-bold text-xs text-stone-800">
+                      <span className={`h-2.5 w-2.5 rounded-full ${density === 'high' ? 'bg-red-600 animate-ping' : density === 'medium' ? 'bg-amber-500' : 'bg-green-600'}`} />
+                      <span>{node.name}</span>
+                    </span>
+                    <span className={`px-2.5 py-1 rounded-full text-[11px] font-black capitalize ${density === 'high' ? 'bg-red-100 text-red-800' : density === 'medium' ? 'bg-amber-100 text-amber-800' : density === 'low' ? 'bg-green-100 text-green-800' : 'bg-stone-200 text-stone-600'}`}>
+                      {density === 'unknown' ? 'No data' : density}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {role === 'admin' && (
+                <button onClick={() => setShowDensitySheet(true)} className="w-full py-2.5 rounded-2xl bg-saffron-600 hover:bg-saffron-700 text-white text-xs font-black shadow transition">
+                  + Report Crowd Density
+                </button>
+              )}
+            </div>
+
+            {/* Traffic Status Card */}
+            <div className="rounded-3xl border border-stone-200/80 bg-white p-5 shadow-md space-y-3 hover-lift">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-black text-stone-900 flex items-center gap-2">
+                  <span>🚦</span> Traffic Status
+                </h3>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-stone-100 text-stone-700 px-2.5 py-0.5 rounded-full border border-stone-200">
+                  Route Flow
+                </span>
+              </div>
+              <div className="space-y-2">
+                {latestTrafficReports.map(({node,status}) => (
+                  <div key={node.id} className="flex items-center justify-between p-3 rounded-2xl bg-stone-50 border border-stone-200/60 hover:bg-stone-100/80 transition">
+                    <span className="flex items-center gap-2.5 font-bold text-xs text-stone-800">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: trafficClass[status] }} />
+                      <span>{node.name}</span>
+                    </span>
+                    <span className="px-2.5 py-1 rounded-full text-[11px] font-black" style={{ backgroundColor: `${trafficClass[status]}1a`, color: trafficClass[status] }}>
+                      {trafficLabel[status]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {role === 'admin' && (
+                <button onClick={() => setShowTrafficSheet(true)} className="w-full py-2.5 rounded-2xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-black shadow transition">
+                  + Report Traffic Flow
+                </button>
+              )}
+            </div>
+
+            {/* Group's Shared Nodes Card */}
+            {profile?.group_id && (
+              <div className="rounded-3xl border border-violet-200 bg-white p-5 shadow-md space-y-3 hover-lift">
+                <h3 className="text-base font-black text-stone-900 flex items-center gap-2">
+                  <span>📌</span> Your Group's Nodes
+                </h3>
+                <p className="text-xs text-stone-500 font-medium">Only visible to members of your group ({registeredGroup}).</p>
+                <div className="space-y-2">
+                  {groupNodes.length === 0 && <p className="text-xs text-stone-400 italic">No group nodes added yet.</p>}
+                  {groupNodes.map((node) => (
+                    <div key={node.id} className="flex items-center justify-between p-3 rounded-2xl bg-violet-50/70 border border-violet-100 text-xs">
+                      <span className="font-bold text-stone-800 flex items-center gap-2">
+                        <span>📌</span>
+                        <span>{node.name}</span>
+                      </span>
+                      {node.created_by === currentMemberId && (
+                        <button onClick={() => void removeGroupNode(node)} className="text-xs font-black text-red-600 hover:underline">
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => setShowAddNodeSheet(true)} className="w-full py-2.5 rounded-2xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-black shadow transition">
+                  + Add Group Checkpoint
+                </button>
+              </div>
+            )}
+          </aside>
         </div>
         {showApplyModal && <div className="fixed inset-0 z-[2000] flex items-end justify-center bg-stone-900/60 backdrop-blur-sm sm:items-center"><div className="relative w-full rounded-t-3xl bg-white px-5 pt-2 pb-8 shadow-2xl sm:max-w-lg sm:rounded-3xl sm:p-7"><div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-stone-200 sm:hidden"/><button onClick={() => setShowApplyModal(false)} className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-stone-400">✕</button><h3 className="mb-5 text-xl font-extrabold">Volunteer application</h3><VolunteerApplication userId={currentMemberId} application={application} nodes={nodes} onRequireAuth={() => setShowAuthModal(true)}/></div></div>}
         {showDensitySheet && <><div className="fixed inset-0 z-40 bg-stone-900/40" onClick={() => setShowDensitySheet(false)}/><div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl transition-transform duration-300 ease-out"><div className="mx-auto mb-4 h-1 w-12 rounded-full bg-stone-200"/><h2 className="text-base font-extrabold">Report crowd density</h2><select className="mt-4 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" value={selectedNode} onChange={e=>setSelectedNode(e.target.value)}>{nodes.map(n=><option key={n.id} value={n.id}>{n.name}</option>)}</select><div className="mt-3 flex gap-2">{(['low','medium','high'] as Density[]).map(d=><button key={d} onClick={() => { void reportDensity(d); setShowDensitySheet(false); }} className={`flex min-h-[80px] flex-1 flex-col items-center justify-center rounded-xl border-2 text-sm font-bold capitalize ${d === 'low' ? 'border-green-500 bg-green-50 text-green-700' : d === 'medium' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-red-500 bg-red-50 text-red-700'}`}>{d === 'low' ? '🟢' : d === 'medium' ? '🟡' : '🔴'}<span>{d}</span></button>)}</div></div></>}
