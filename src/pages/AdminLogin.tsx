@@ -247,7 +247,6 @@ export function AdminLogin({
     setMessage('Broadcast published to all pilgrims. Only the three newest active broadcasts are kept.');
     if (data) onBroadcastCreated?.(data as BroadcastMessage);
   }
-  }
 
   async function saveNode(event: React.FormEvent) {
     event.preventDefault();
