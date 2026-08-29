@@ -1,4 +1,5 @@
 export type Density = 'unknown' | 'low' | 'medium' | 'high';
+export type TrafficStatus = 'unknown' | 'clear' | 'moderate' | 'heavy' | 'jam';
 export type QueuePriority = 'sos' | 'normal';
 export type UserRole = 'pilgrim' | 'volunteer' | 'admin';
 
@@ -63,6 +64,30 @@ export interface CrowdReport {
   node_id: string;
   density: Density;
   reported_by?: string;
+  created_at?: string;
+  pending?: boolean;
+}
+
+export interface TrafficReport {
+  id?: string | number;
+  node_id: string;
+  status: TrafficStatus;
+  note?: string;
+  reported_by?: string;
+  created_at?: string;
+  pending?: boolean;
+}
+
+// A route node added by a pilgrim group for their own use (e.g. "our tent",
+// "family meeting point"). Only visible to members of the same group.
+export interface GroupNode {
+  id?: string;
+  group_id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  note?: string;
+  created_by?: string;
   created_at?: string;
   pending?: boolean;
 }
@@ -208,5 +233,5 @@ export interface EmergencyContact {
   description?: string;
 }
 
-export type StoredRecord = CrowdReport | ItemRequest | Sighting | SosAlert;
+export type StoredRecord = CrowdReport | TrafficReport | ItemRequest | Sighting | SosAlert | GroupNode;
 
