@@ -178,7 +178,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
     >
       <div
         ref={modalRef}
-        className="relative w-full translate-y-0 rounded-t-3xl bg-white px-5 pt-2 pb-8 shadow-2xl transition-transform duration-300 ease-out sm:max-w-md sm:rounded-3xl sm:p-7"
+        className="relative w-full max-h-[85vh] overflow-y-auto translate-y-0 rounded-t-3xl bg-white px-5 pt-2 pb-8 shadow-2xl transition-transform duration-300 ease-out sm:max-w-md sm:rounded-3xl sm:p-7"
       >
         {/* Close button */}
         <button
