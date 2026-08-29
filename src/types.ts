@@ -124,6 +124,16 @@ export interface Sighting {
 export type SosCategory = 'medical' | 'lost' | 'accident' | 'crowd' | 'water_food' | 'general';
 export type PacketType = 'sos_outward' | 'chat_outward' | 'news_inward' | 'goods_services_inward';
 
+export interface BroadcastMessage {
+  id?: string | number;
+  message: string;
+  created_by?: string;
+  created_at?: string;
+  expires_at?: string | null;
+  active?: boolean;
+  pending?: boolean;
+}
+
 export interface SosAlert {
   id?: string | number;
   member_id?: string;
@@ -158,13 +168,21 @@ export interface SosAlert {
   gateway_id?: string;
 }
 
+export type MeshChatMessageType = 'text' | 'voice';
+
 export interface MeshChatMessage {
   id: string;
   sos_id?: string | number;
   sender_id: string;
   sender_name: string;
   sender_phone?: string;
+  type?: MeshChatMessageType;
   text: string;
+  audioData?: string;
+  durationSeconds?: number;
+  mimeType?: string;
+  reassemblyStatus?: 'receiving' | 'stalled';
+  reassemblyProgress?: { receivedChunks: number; totalChunks: number };
   category?: SosCategory;
   lat?: number;
   lng?: number;

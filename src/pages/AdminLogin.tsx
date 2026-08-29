@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { cacheRows, deleteEmergencyContact, getEmergencyContacts, getRows, saveEmergencyContact } from '../db';
+import { cacheRows, deleteEmergencyContact, deleteVolunteerApplication, getEmergencyContacts, getRows, saveEmergencyContact } from '../db';
 import { getSupabaseConfigError, isSupabaseConfigured, supabase } from '../supabase';
 import { signIn } from '../auth';
-import type { EmergencyContact, NodePoint, VolunteerApplication } from '../types';
+import type { BroadcastMessage, EmergencyContact, NodePoint, VolunteerApplication } from '../types';
 
 type NodeForm = { id?: string; name: string; lat: string; lng: string; sequence_order: string };
 const emptyNodeForm: NodeForm = { name: '', lat: '', lng: '', sequence_order: '' };
@@ -15,8 +15,11 @@ export function AdminLogin({
   registeredProfileCount = 0,
   routeStationCount = 0,
   nodes = [],
+  broadcastMessages = [],
   onNodesChange,
-  onApproveVolunteer
+  onApproveVolunteer,
+  onBroadcastCreated,
+  onDeleteBroadcast
 }: {
   userId?: string;
   userEmail?: string;
@@ -25,8 +28,11 @@ export function AdminLogin({
   registeredProfileCount?: number;
   routeStationCount?: number;
   nodes?: NodePoint[];
+  broadcastMessages?: BroadcastMessage[];
   onNodesChange?: (nodes: NodePoint[]) => void;
   onApproveVolunteer?: (application: VolunteerApplication) => void;
+  onBroadcastCreated?: (broadcast: BroadcastMessage) => void;
+  onDeleteBroadcast?: (id: string) => void;
 }) {
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState<VolunteerApplication[]>([]);
@@ -35,6 +41,9 @@ export function AdminLogin({
   const [adminPassword, setAdminPassword] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [broadcastText, setBroadcastText] = useState('');
+  const [broadcastExpiresAt, setBroadcastExpiresAt] = useState('');
+  const [broadcasting, setBroadcasting] = useState(false);
 
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [contactTitle, setContactTitle] = useState('');
@@ -103,6 +112,13 @@ export function AdminLogin({
 
       const map = new Map<string, VolunteerApplication>();
       for (const app of [...pendingRemote, ...pendingLocal]) {
+        const isTestVolunteer = app.full_name && app.full_name.toLowerCase().includes('amit') && app.full_name.toLowerCase().includes('deshmukh');
+        if (isTestVolunteer) {
+          if (app.id) {
+            void deleteVolunteerApplication(app.id);
+          }
+          continue;
+        }
         if (app.id) map.set(app.id, app);
       }
       setPending(Array.from(map.values()));
@@ -195,6 +211,85 @@ export function AdminLogin({
 
     setPending((rows) => rows.filter((row) => row.id !== application.id));
     setMessage(`Rejected application for ${application.full_name}.`);
+  }
+
+  async function removeVolunteerApplication(application: VolunteerApplication) {
+    if (application.id) {
+      await deleteVolunteerApplication(application.id);
+    }
+    setPending((rows) => rows.filter((row) => row.id !== application.id));
+    setMessage(`✓ Permanently removed volunteer application for ${application.full_name}.`);
+  }
+
+  async function sendBroadcast(event: React.FormEvent) {
+    event.preventDefault();
+    const text = broadcastText.trim();
+    if (!text) {
+      setMessage('Enter a broadcast message before publishing.');
+      return;
+    }
+
+    setBroadcasting(true);
+    setMessage('');
+
+    const expiresIso = broadcastExpiresAt && new Date(broadcastExpiresAt).getTime() > Date.now()
+      ? new Date(broadcastExpiresAt).toISOString()
+      : null;
+    const localBroadcast: BroadcastMessage = {
+      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}`,
+      message: text,
+      created_by: userId || undefined,
+      expires_at: expiresIso || undefined,
+      active: true,
+      created_at: new Date().toISOString()
+    };
+
+    // 1. Instantly update UI and clear input (0ms delay)
+    onBroadcastCreated?.(localBroadcast);
+    setBroadcastText('');
+    setBroadcastExpiresAt('');
+    setBroadcasting(false);
+    setMessage('✓ Broadcast published to marquee display.');
+
+    // 2. Save to local IndexedDB storage
+    void cacheRows('broadcast_messages', [localBroadcast]);
+
+    // 3. Background push to Supabase backend (non-blocking)
+    if (isSupabaseConfigured) {
+      void (async () => {
+        try {
+          const payload = {
+            message: text,
+            ...(userId ? { created_by: userId } : {}),
+            expires_at: expiresIso,
+            active: true
+          };
+          const { error } = await supabase.from('broadcast_messages').insert(payload);
+          if (error) {
+            await supabase.from('broadcast_messages').insert({
+              message: text,
+              expires_at: expiresIso,
+              active: true
+            });
+          }
+        } catch (err) {
+          console.warn('[broadcast] Background Supabase sync failed:', err);
+        }
+      })();
+    }
+  }
+
+  async function handleDeleteBroadcast(id?: string) {
+    if (!id) return;
+    if (isSupabaseConfigured) {
+      try {
+        void supabase.from('broadcast_messages').update({ active: false }).eq('id', id);
+      } catch (err) {
+        console.warn('Failed to delete broadcast from Supabase:', err);
+      }
+    }
+    onDeleteBroadcast?.(id);
+    setMessage('✓ Broadcast removed from marquee.');
   }
 
   async function saveNode(event: React.FormEvent) {
@@ -344,6 +439,51 @@ export function AdminLogin({
         <Stat label="ROUTE STATIONS" value={routeStationCount} color="text-teal-600" />
       </div>
 
+
+      <div className="rounded-3xl border border-amber-200 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-stone-900 mb-2 flex items-center gap-2">
+          <span>📢</span> Broadcast Message
+        </h2>
+        <p className="mb-4 text-sm text-stone-500">Publish a short text alert that scrolls across the top of the app for signed-in and guest pilgrims. The app keeps only the three newest active broadcasts; adding another replaces the oldest.</p>
+        <form className="grid gap-3 md:grid-cols-[1fr_220px_auto]" onSubmit={(event) => void sendBroadcast(event)}>
+          <input
+            className="rounded-xl border border-stone-300 p-3 text-sm"
+            maxLength={220}
+            placeholder="e.g. Heavy rain near Wakhri. Please follow volunteer instructions."
+            value={broadcastText}
+            onChange={(e) => setBroadcastText(e.target.value)}
+          />
+          <input
+            className="rounded-xl border border-stone-300 p-3 text-sm"
+            type="datetime-local"
+            value={broadcastExpiresAt}
+            onChange={(e) => setBroadcastExpiresAt(e.target.value)}
+            aria-label="Optional broadcast expiry"
+          />
+          <button disabled={broadcasting || !broadcastText.trim()} className="rounded-xl bg-amber-600 px-4 py-3 text-sm font-bold text-white shadow disabled:opacity-50">
+            {broadcasting ? 'Publishing…' : 'Broadcast'}
+          </button>
+        </form>
+
+        {broadcastMessages.length > 0 && (
+          <div className="mt-4 space-y-2 pt-3 border-t border-stone-200">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">Active Marquee Broadcasts</h3>
+            {broadcastMessages.map((msg) => (
+              <div key={msg.id} className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs">
+                <span className="font-semibold text-stone-800 truncate">📢 {msg.message}</span>
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteBroadcast(msg.id ? String(msg.id) : undefined)}
+                  className="shrink-0 rounded-lg bg-red-100 px-2.5 py-1 text-xs font-bold text-red-700 hover:bg-red-200 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-stone-900 mb-4 flex items-center gap-2">
           <span>📝</span> Pending Volunteer Applications ({pending.length})
@@ -390,6 +530,13 @@ export function AdminLogin({
                       className="rounded-xl bg-stone-200 px-3 py-2.5 text-xs font-semibold text-stone-700 hover:bg-stone-300 transition-colors"
                     >
                       Reject
+                    </button>
+                    <button
+                      onClick={() => void removeVolunteerApplication(application)}
+                      className="rounded-xl bg-red-100 px-3 py-2.5 text-xs font-bold text-red-700 hover:bg-red-200 transition-colors"
+                      title="Permanently remove application"
+                    >
+                      Delete
                     </button>
                   </div>
                 </div>

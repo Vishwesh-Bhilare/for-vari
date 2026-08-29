@@ -6,7 +6,7 @@ import L from 'leaflet';
 import { cacheRows, drainOutbox, getRows, queueWrite } from './db';
 import { isSupabaseConfigured, supabase } from './supabase';
 import { signOut, useProfile, useSession, useVolunteerApplication } from './auth';
-import type { CrowdReport, Density, Group, GroupNode, ItemRequest, LiveLocation, NodePoint, Profile, Sighting, SosAlert, TrafficReport, TrafficStatus, VolunteerApplication as VolunteerAppRecord } from './types';
+import type { BroadcastMessage, CrowdReport, Density, Group, GroupNode, ItemRequest, LiveLocation, NodePoint, Profile, Sighting, SosAlert, TrafficReport, TrafficStatus, VolunteerApplication as VolunteerAppRecord } from './types';
 import { VolunteerApplication } from './components/VolunteerApplication';
 import { AdminLogin } from './pages/AdminLogin';
 import { AuthModal } from './components/AuthModal';
@@ -178,6 +178,7 @@ function App() {
   const [items, setItems] = useState<ItemRequest[]>([]);
   const [sightings, setSightings] = useState<Sighting[]>([]);
   const [sosAlerts, setSosAlerts] = useState<SosAlert[]>([]);
+  const [broadcastMessages, setBroadcastMessages] = useState<BroadcastMessage[]>([]);
   const [selectedNode, setSelectedNode] = useState('');
   const [checkInNode, setCheckInNode] = useState('');
   const [itemName, setItemName] = useState('');
@@ -231,6 +232,7 @@ function App() {
       getRows<CrowdReport>('crowd_reports').then(setReports), getRows<ItemRequest>('item_requests').then(setItems),
       getRows<TrafficReport>('traffic_reports').then(setTrafficReports), getRows<GroupNode>('group_nodes').then(setGroupNodes),
       getRows<Sighting>('sightings').then(setSightings), getRows<SosAlert>('sos_alerts').then(setSosAlerts),
+      getRows<BroadcastMessage>('broadcast_messages').then(setBroadcastMessages),
       getRows<NodePoint>('nodes').then((rows) => rows.length && setNodes(rows))
     ]);
     void drainOutbox();
@@ -326,6 +328,7 @@ function App() {
       }
     });
     void supabase.from('traffic_reports').select('*').order('created_at', { ascending: false }).then(({ data }) => data && (void cacheRows('traffic_reports', data), setTrafficReports(data as TrafficReport[])));
+    void supabase.from('broadcast_messages').select('*').eq('active', true).order('created_at', { ascending: false }).limit(3).then(({ data }) => data && (void cacheRows('broadcast_messages', data), setBroadcastMessages(data as BroadcastMessage[]))); 
     void supabase.from('profiles').select('*', { count: 'exact', head: true }).then(({ count }) => setRegisteredProfileCount(count ?? 0));
     const channel = supabase.channel(`vari-live-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crowd_reports' }, (p) => setReports((r) => [p.new as CrowdReport, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.node_id === p.new.node_id && i.density === p.new.density && i.reported_by === p.new.reported_by))]))
@@ -334,6 +337,7 @@ function App() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sightings' }, (p) => setSightings((r) => [p.new as Sighting, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.member_id === p.new.member_id && i.node_id === p.new.node_id && i.note === p.new.note))]))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sos_alerts' }, (p) => setSosAlerts((r) => [p.new as SosAlert, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.member_id === p.new.member_id && i.node_id === p.new.node_id && i.status === p.new.status))]))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'profiles' }, () => setRegisteredProfileCount((count) => count + 1))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'broadcast_messages' }, () => void supabase.from('broadcast_messages').select('*').eq('active', true).order('created_at', { ascending: false }).limit(3).then(({ data }) => data && setBroadcastMessages(data as BroadcastMessage[])))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'nodes' }, () => void supabase.from('nodes').select('*').order('sequence_order').then(({ data }) => data && setNodes(data as NodePoint[])))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
@@ -408,6 +412,11 @@ function App() {
 
   const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
   const latestTrafficReports = useMemo(() => nodes.map((node) => ({ node, status: trafficReports.find((r) => r.node_id === node.id)?.status ?? 'unknown' as TrafficStatus })), [nodes, trafficReports]);
+  const activeBroadcasts = useMemo(() => broadcastMessages
+    .filter((message) => message.active !== false && (!message.expires_at || isNaN(new Date(message.expires_at).getTime()) || new Date(message.expires_at).getTime() > Date.now()))
+    .sort((a, b) => new Date(b.created_at ?? Date.now()).getTime() - new Date(a.created_at ?? Date.now()).getTime())
+    .slice(0, 3), [broadcastMessages]);
+  const broadcastMarqueeText = activeBroadcasts.map((message) => `📢 ${message.message}`).join('   •   ');
   const nearestNodeId = useMemo(() => nodes.map((node) => ({ node, distance: getDistanceMeters(position?.coords, node.lat, node.lng) })).sort((a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY))[0]?.node.id ?? nodes[0]?.id ?? '', [nodes, position?.coords]);
   useEffect(() => { if (nearestNodeId && !selectedNode) setSelectedNode(nearestNodeId); }, [nearestNodeId, selectedNode]);
   useEffect(() => { if (nearestNodeId && !checkInNode) setCheckInNode(nearestNodeId); }, [nearestNodeId, checkInNode]);
@@ -575,7 +584,11 @@ function App() {
       return;
     }
     if (!registration.name.trim() || !currentMemberId || !isSupabaseConfigured) {
-      setNotice({ type: 'error', text: 'Please sign in and enter a name before registering a group.' });
+      setNotice({ type: 'error', text: 'Please sign in and enter your name before registering a group.' });
+      return;
+    }
+    if (!registration.photo) {
+      setNotice({ type: 'error', text: '📷 Pilgrim photo upload is compulsory. Please select your photo before registering.' });
       return;
     }
     const normalizedGroupCode = registration.groupCode.trim();
@@ -611,13 +624,25 @@ function App() {
 
     let photo_url: string | undefined;
     if (registration.photo) {
-      const path = `${groupId}/${currentMemberId}-${registration.photo.name}`;
-      const { data, error } = await supabase.storage.from('member-photos').upload(path, registration.photo, { upsert: true });
-      if (error) {
-        setNotice({ type: 'error', text: `Photo upload failed: ${error.message}` });
-        return;
+      try {
+        const path = `${groupId}/${currentMemberId}-${registration.photo.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const { data, error } = await supabase.storage.from('member-photos').upload(path, registration.photo, { upsert: true });
+        if (!error && data) {
+          photo_url = supabase.storage.from('member-photos').getPublicUrl(data.path).data.publicUrl;
+        } else {
+          photo_url = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(registration.photo!);
+          });
+        }
+      } catch (err) {
+        photo_url = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(registration.photo!);
+        });
       }
-      if (data) photo_url = supabase.storage.from('member-photos').getPublicUrl(data.path).data.publicUrl;
     }
     const profilePatch = { group_id: groupId, display_name: registration.name, phone: registration.phone, emergency_contact: registration.emergency, ...(photo_url ? { photo_url } : {}) };
     const { error } = await supabase.from('profiles').update(profilePatch).eq('id', currentMemberId);
@@ -667,8 +692,9 @@ function App() {
       <header className="bg-stone-950 px-4 py-3 text-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3"><div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center text-xl">🚩</span><div><h1 className="text-base font-extrabold leading-tight">Wari Companion</h1><p className="text-xs font-semibold uppercase tracking-widest text-stone-400">Pandharpur Vari</p></div></div><nav className="hidden lg:flex items-center gap-1"><button onClick={() => changeView('pilgrim')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'pilgrim' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Pilgrim view</button><button onClick={() => changeView('news')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'news' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>📰 Live News</button><button onClick={() => changeView('helplines')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'helplines' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>📞 Helplines</button><button onClick={() => changeView('sos_mesh')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'sos_mesh' ? 'bg-red-600 text-white' : 'text-red-400 hover:bg-red-900/40'}`}>SOS mesh</button><button onClick={() => changeView('admin')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'admin' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Admin</button></nav>{session ? <button onClick={() => void handleSignOut()} className="flex h-8 w-8 items-center justify-center rounded-full bg-saffron-600 text-xs font-bold text-white">{(profile?.display_name ?? session.user.email ?? '?').slice(0, 2).toUpperCase()}</button> : <button onClick={() => setShowAuthModal(true)} className="rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-semibold text-stone-300">Sign in</button>}</div>
       </header>
+      {activeBroadcasts.length > 0 && <div className="sticky top-0 z-[60] overflow-hidden border-y border-amber-300 bg-amber-100 py-2 text-amber-950 shadow-sm" role="status" aria-live="polite" aria-label="Admin broadcasts"><div className="broadcast-marquee whitespace-nowrap text-sm font-extrabold"><span className="mr-10">{broadcastMarqueeText}</span><span>{broadcastMarqueeText}</span></div></div>}
       {(notice || authError || profileError || applicationError) && <div className={`mx-4 mt-3 rounded-xl border p-3 text-sm font-semibold ${notice?.type === 'success' ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'}`}>{notice?.text ?? authError ?? profileError ?? applicationError}</div>}
-      {view === 'admin' ? <div className="min-h-screen bg-saffron-50 px-4 py-3 pb-20 lg:px-8 lg:pb-4"><h2 className="mb-3 text-xl font-extrabold text-stone-900">Admin dashboard</h2>{role === 'admin' && <><p className="mb-3 text-sm text-stone-600">Live locations for all pilgrims who have granted device permission.</p><div id="map" className="mb-4 h-[320px] w-full overflow-hidden rounded-2xl bg-cream-100" /></>}<AdminLogin userId={currentMemberId} userEmail={session?.user?.email} role={role} activeSosCount={activeSosCount} registeredProfileCount={registeredProfileCount} routeStationCount={nodes.length} nodes={nodes} onNodesChange={setNodes} /></div> : view === 'news' ? <div className="min-h-screen bg-saffron-50 p-4 pb-20 max-w-7xl mx-auto lg:p-6"><LiveNews /></div> : view === 'helplines' ? <div className="min-h-screen bg-saffron-50 p-4 pb-20 max-w-7xl mx-auto lg:p-6"><EmergencyContacts /></div> : view === 'sos_mesh' ? <div className="min-h-screen bg-stone-950 pb-20 lg:pb-4"><VarkariSosMesh currentMemberId={currentMemberId} profile={profile} position={position} nodes={nodes} nearestNodeId={nearestNodeId} onSosCreated={(newAlert) => setSosAlerts((prev) => [newAlert, ...prev])} onRequestLocationPermission={requestLocation} geoError={geoError} onSetManualLocation={setManualLocation} /></div> : <div className="pb-20 lg:pb-4">
+      {view === 'admin' ? <div className="min-h-screen bg-saffron-50 px-4 py-3 pb-20 lg:px-8 lg:pb-4"><h2 className="mb-3 text-xl font-extrabold text-stone-900">Admin dashboard</h2>{role === 'admin' && <><p className="mb-3 text-sm text-stone-600">Live locations for all pilgrims who have granted device permission.</p><div id="map" className="mb-4 h-[320px] w-full overflow-hidden rounded-2xl bg-cream-100" /></>}<AdminLogin userId={currentMemberId} userEmail={session?.user?.email} role={role} activeSosCount={activeSosCount} registeredProfileCount={registeredProfileCount} routeStationCount={nodes.length} nodes={nodes} broadcastMessages={activeBroadcasts} onNodesChange={setNodes} onBroadcastCreated={(broadcast) => setBroadcastMessages((messages) => [broadcast, ...messages.filter((message) => message.id !== broadcast.id)].slice(0, 3))} onDeleteBroadcast={(id) => setBroadcastMessages((messages) => messages.filter((m) => m.id !== id))} /></div> : view === 'news' ? <div className="min-h-screen bg-saffron-50 p-4 pb-20 max-w-7xl mx-auto lg:p-6"><LiveNews /></div> : view === 'helplines' ? <div className="min-h-screen bg-saffron-50 p-4 pb-20 max-w-7xl mx-auto lg:p-6"><EmergencyContacts /></div> : view === 'sos_mesh' ? <div className="min-h-screen bg-stone-950 pb-20 lg:pb-4"><VarkariSosMesh currentMemberId={currentMemberId} profile={profile} position={position} nodes={nodes} nearestNodeId={nearestNodeId} onSosCreated={(newAlert) => setSosAlerts((prev) => [newAlert, ...prev])} onRequestLocationPermission={requestLocation} geoError={geoError} onSetManualLocation={setManualLocation} /></div> : <div className="pb-20 lg:pb-4">
         {activeSosCount > 0 && <div className="sticky top-0 z-40 flex items-center justify-between bg-red-600 px-4 py-3 text-white"><span className="flex items-center text-sm font-bold"><span className="mr-2 h-2.5 w-2.5 animate-pulse rounded-full bg-white" />{activeSosCount} active alert{activeSosCount === 1 ? '' : 's'}</span><button onClick={() => changeView('sos_mesh')} className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-bold">View →</button></div>}
         {session && !position && <div className="mx-4 mt-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><span>Share your device location to show your live dot to your group.</span><button onClick={requestLocation} className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white">Allow location</button></div>}
         {!session && <section className="mx-4 mt-4 rounded-2xl bg-stone-950 p-5 text-white lg:mx-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-extrabold">{guestCopy.title}</h2><p className="mt-1 text-sm text-stone-300">{guestCopy.description}</p></div><div className="flex rounded-xl border border-stone-700 bg-stone-900 p-1" aria-label="Translate page language"><button type="button" onClick={() => setGuestLanguage('en')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${guestLanguage === 'en' ? 'bg-saffron-600 text-white' : 'text-stone-300'}`}>English</button><button type="button" onClick={() => setGuestLanguage('mr')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${guestLanguage === 'mr' ? 'bg-saffron-600 text-white' : 'text-stone-300'}`}>मराठी</button></div></div><p className="mt-3 rounded-xl border border-saffron-500/30 bg-saffron-500/10 p-3 text-sm font-semibold text-saffron-100">{guestCopy.authRequired}</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={() => setShowAuthModal(true)} className="rounded-xl bg-saffron-600 px-4 py-2 text-sm font-bold">{guestCopy.signIn}</button><button onClick={() => changeView('news')} className="rounded-xl bg-stone-800 border border-stone-700 px-4 py-2 text-sm font-bold text-white">{guestCopy.news}</button><button onClick={() => changeView('helplines')} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white">📞 Helplines</button><button onClick={() => setShowApplyModal(true)} className="rounded-xl border border-stone-600 px-4 py-2 text-sm font-bold">{guestCopy.volunteer}</button></div></section>}<div className="lg:grid lg:grid-cols-[2fr_1fr] lg:gap-4 lg:p-4"><div className="space-y-3"><div className="relative mx-4 h-[240px] overflow-hidden rounded-2xl lg:mx-0 lg:h-[400px]"><div id="map" className="h-full w-full bg-cream-100" /><div className="absolute bottom-3 right-3 flex flex-col items-end gap-2">{role === 'admin' && <button onClick={() => setShowTrafficSheet(true)} className="min-h-[44px] rounded-xl bg-stone-900 px-3 py-2 text-xs font-bold text-white shadow-sm">🚦 Report traffic</button>}{role === 'admin' && <button onClick={() => setShowDensitySheet(true)} className="min-h-[44px] rounded-xl bg-saffron-600 px-3 py-2 text-xs font-bold text-white shadow-sm">Report density</button>}{session && profile?.group_id && <button onClick={() => setShowAddNodeSheet(true)} className="min-h-[44px] rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white shadow-sm">📌 Add group node</button>}</div></div><div className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide lg:hidden">{latestReports.map(({node,density}) => <div key={node.id} className={`w-[140px] flex-shrink-0 rounded-2xl border border-cream-200 border-l-4 bg-white p-3 shadow-sm ${density === 'high' ? 'border-l-red-600' : density === 'medium' ? 'border-l-amber-500' : 'border-l-green-600'}`}><p className="truncate text-sm font-extrabold text-stone-900">{node.name}</p><span className={`mt-2 inline-block rounded-full px-2.5 py-1 text-xs font-bold ${density === 'high' ? 'bg-red-50 text-red-700' : density === 'medium' ? 'bg-amber-50 text-amber-700' : density === 'low' ? 'bg-green-50 text-green-600' : 'bg-cream-100 text-stone-500'}`}>{density === 'unknown' ? 'No data' : density}</span></div>)}</div><div className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide lg:hidden">{latestTrafficReports.map(({node,status}) => <div key={node.id} className="w-[140px] flex-shrink-0 rounded-2xl border border-cream-200 border-l-4 bg-white p-3 shadow-sm" style={{ borderLeftColor: trafficClass[status] }}><p className="truncate text-sm font-extrabold text-stone-900">{node.name}</p><span className="mt-2 inline-block rounded-full px-2.5 py-1 text-xs font-bold" style={{ backgroundColor: `${trafficClass[status]}1a`, color: trafficClass[status] }}>{trafficLabel[status]}</span></div>)}</div><div className="mx-4 lg:mx-0 space-y-2"><button onClick={() => changeView('helplines')} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-red-300 bg-red-50/90 px-4 py-3 text-left shadow-2xs hover:bg-red-100 transition-all"><span className="flex items-center gap-2.5 font-extrabold text-stone-900 text-sm"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-red-600 text-white text-xs">📞</span><span>Emergency Helplines (108 / 112 / 104)</span></span><span className="rounded-xl bg-red-600 px-3 py-1.5 text-xs font-bold text-white">Call Helplines →</span></button><button onClick={() => changeView('news')} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-saffron-300 bg-saffron-100/90 px-4 py-3 text-left shadow-2xs hover:bg-saffron-200/80 transition-all"><span className="flex items-center gap-2.5 font-extrabold text-stone-900 text-sm"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-saffron-600 text-white text-xs">📰</span><span>Live Wari News & Traffic Updates</span></span><span className="rounded-xl bg-saffron-600 px-3 py-1.5 text-xs font-bold text-white">View News Tab →</span></button></div><section className="mx-4 overflow-hidden rounded-2xl border border-cream-200 bg-white lg:mx-0 lg:grid lg:grid-cols-3 lg:gap-4 lg:border-0 lg:bg-transparent">
@@ -696,7 +722,47 @@ function GroupPanel({ session, profile, groupAction, setGroupAction, registratio
     {locationError && <p className="mt-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">Could not load live locations: {locationError}</p>}
     {familyProfiles.length === 0 && !locationError && <p className="mt-2 text-xs text-stone-500">Loading group members…</p>}
   </section>;
-  return <><div className="mb-3 grid grid-cols-2 gap-2"><button onClick={() => { setGroupAction('create'); setRegistration({ ...registration, groupCode: makeGroupCode() }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'create' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Create group</button><button onClick={() => { setGroupAction('join'); setRegistration({ ...registration, groupCode: '' }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'join' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Join group</button></div><p className="mb-3 text-xs text-stone-500">{groupAction === 'create' ? 'A unique code has been generated. Share it only with your group.' : 'Enter the unique code shared by your group organiser.'}</p><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Your name" value={registration.name} onChange={e => setRegistration({ ...registration, name: e.target.value })}/><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Unique group code" value={registration.groupCode} onChange={e => setRegistration({ ...registration, groupCode: e.target.value.toUpperCase() })}/><button onClick={onSubmit} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">{groupAction === 'create' ? 'Create & join group' : 'Join group'}</button>{registeredGroup && <><p className="mt-3 rounded-xl bg-green-50 p-3 text-xs font-bold text-green-700">Your group code: {registeredGroup}</p><p className="mt-2 text-xs text-stone-500">{familyProfiles.length} member{familyProfiles.length === 1 ? '' : 's'} in your group. Purple map dots are shared only after each member grants location access.</p></>}</>;
+  const photoPreview = registration.photo ? URL.createObjectURL(registration.photo) : null;
+
+  return (
+    <>
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => { setGroupAction('create'); setRegistration({ ...registration, groupCode: makeGroupCode() }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'create' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Create group</button>
+        <button type="button" onClick={() => { setGroupAction('join'); setRegistration({ ...registration, groupCode: '' }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'join' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Join group</button>
+      </div>
+      <p className="mb-3 text-xs text-stone-500">{groupAction === 'create' ? 'A unique code has been generated. Share it only with your group.' : 'Enter the unique code shared by your group organiser.'}</p>
+      
+      <input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Your full name *" value={registration.name} onChange={e => setRegistration({ ...registration, name: e.target.value })} required />
+      <input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Unique group code *" value={registration.groupCode} onChange={e => setRegistration({ ...registration, groupCode: e.target.value.toUpperCase() })} required />
+      
+      {/* Compulsory Pilgrim Photo Upload Field */}
+      <div className="mb-4 rounded-2xl border-2 border-dashed border-saffron-300 bg-saffron-50/60 p-4 text-center">
+        <label className="block text-xs font-extrabold uppercase tracking-wider text-saffron-950 mb-1">
+          📷 Pilgrim Photo <span className="text-red-600 font-black">(Compulsory *)</span>
+        </label>
+        <p className="text-[11px] text-stone-500 mb-3">Upload your clear photo for group identity and pilgrim safety tracking.</p>
+        
+        {photoPreview ? (
+          <div className="flex flex-col items-center gap-2">
+            <img src={photoPreview} alt="Pilgrim Preview" className="h-20 w-20 rounded-full object-cover border-2 border-saffron-600 shadow-md" />
+            <span className="text-xs font-bold text-green-700">✓ Photo selected: {registration.photo?.name}</span>
+            <label className="cursor-pointer text-xs font-bold text-saffron-700 underline mt-1">
+              Change photo
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) setRegistration({ ...registration, photo: file }); }} />
+            </label>
+          </div>
+        ) : (
+          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-saffron-600 px-4 py-2.5 text-xs font-bold text-white shadow hover:bg-saffron-700 transition-colors">
+            <span>📤 Choose Pilgrim Photo *</span>
+            <input type="file" accept="image/*" required className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) setRegistration({ ...registration, photo: file }); }} />
+          </label>
+        )}
+      </div>
+
+      <button onClick={onSubmit} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">{groupAction === 'create' ? 'Create & join group' : 'Join group'}</button>
+      {registeredGroup && <><p className="mt-3 rounded-xl bg-green-50 p-3 text-xs font-bold text-green-700">Your group code: {registeredGroup}</p><p className="mt-2 text-xs text-stone-500">{familyProfiles.length} member{familyProfiles.length === 1 ? '' : 's'} in your group. Purple map dots are shared only after each member grants location access.</p></>}
+    </>
+  );
 }
 
 function VolunteerDashboard({ session, profile, role, approved, loading, nodes, sosAlerts, sightings, setSosAlerts, setSightings }: { session: ReturnType<typeof useSession>['session']; profile: Profile | null; role: string; approved: boolean; loading: boolean; nodes: NodePoint[]; sosAlerts: SosAlert[]; sightings: Sighting[]; setSosAlerts: React.Dispatch<React.SetStateAction<SosAlert[]>>; setSightings: React.Dispatch<React.SetStateAction<Sighting[]>> }) {

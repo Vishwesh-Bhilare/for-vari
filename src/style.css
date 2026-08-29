@@ -17,3 +17,24 @@
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
 .sos-hold-ring { background: conic-gradient(#dc2626 var(--sos-progress, 0%), transparent 0); }
+
+
+.broadcast-marquee {
+  display: inline-block;
+  min-width: 200%;
+  padding-left: 100%;
+  animation: broadcast-marquee 18s linear infinite;
+}
+
+@keyframes broadcast-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .broadcast-marquee {
+    min-width: auto;
+    padding-left: 1rem;
+    animation: none;
+  }
+}
