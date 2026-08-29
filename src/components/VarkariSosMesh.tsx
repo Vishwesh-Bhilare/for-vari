@@ -139,7 +139,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
   geoError,
   onSetManualLocation
 }) => {
-  const [lang, setLang] = useState<'mr' | 'en'>('mr');
+  const [lang, setLang] = useState<'mr' | 'en'>('en');
   const [activeTab, setActiveTab] = useState<'sos' | 'chat' | 'news' | 'goods' | 'mesh_topology'>('sos');
   const [activeCategory, setActiveCategory] = useState<SosCategory>('medical');
   const [customNote, setCustomNote] = useState('');
@@ -720,7 +720,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       accuracy,
       altitude,
       category: activeCategory,
-      note: customNote.trim() || CATEGORY_CONFIG[activeCategory].labelMr,
+      note: customNote.trim() || (lang === 'en' ? CATEGORY_CONFIG[activeCategory].labelEn : CATEGORY_CONFIG[activeCategory].labelMr),
       display_name: profile?.display_name || 'Varkari Pilgrim',
       phone: profile?.phone || '',
       status: 'active',

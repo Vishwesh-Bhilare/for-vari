@@ -2,3 +2,23 @@
 node_modules
 dist
 tsconfig.tsbuildinfo
+
+# Build & Tool Output
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+
+# Android build & cache files
+android/.gradle/
+android/app/build/
+android/app/libs/
+android/local.properties
+*.apk
+*.aab
+
+# Python cache
+__pycache__/
+*.pyc
