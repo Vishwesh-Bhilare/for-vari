@@ -224,62 +224,74 @@ export function AdminLogin({
       setMessage('Enter a broadcast message before publishing.');
       return;
     }
+
     setBroadcasting(true);
-    const expiresIso = broadcastExpiresAt ? new Date(broadcastExpiresAt).toISOString() : null;
-
-    let publishedBroadcast: BroadcastMessage | null = null;
-
-    if (isSupabaseConfigured) {
-      try {
-        const insertTask = (async () => {
-          const payload = {
-            message: text,
-            ...(userId ? { created_by: userId } : {}),
-            expires_at: expiresIso,
-            active: true
-          };
-          const { data, error } = await supabase.from('broadcast_messages').insert(payload).select('*');
-          if (!error && data && data.length > 0) {
-            return data[0] as BroadcastMessage;
-          }
-          const { data: data2, error: error2 } = await supabase.from('broadcast_messages').insert({
-            message: text,
-            expires_at: expiresIso,
-            active: true
-          }).select('*');
-          if (!error2 && data2 && data2.length > 0) {
-            return data2[0] as BroadcastMessage;
-          }
-          return null;
-        })();
-
-        const timeoutTask = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
-        publishedBroadcast = await Promise.race([insertTask, timeoutTask]);
-      } catch (err) {
-        console.warn('Supabase broadcast insert error:', err);
-      }
-    }
-
-    const broadcastRecord: BroadcastMessage = publishedBroadcast ?? {
-      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}`,
-      message: text,
-      created_by: userId || undefined,
-      expires_at: expiresIso || undefined,
-      active: true,
-      created_at: new Date().toISOString()
-    };
+    setMessage('');
 
     try {
-      await cacheRows('broadcast_messages', [broadcastRecord]);
-    } catch (e) {
-      console.warn('Local cache broadcast write error:', e);
-    }
+      const expiresIso = broadcastExpiresAt ? new Date(broadcastExpiresAt).toISOString() : null;
+      let publishedBroadcast: BroadcastMessage | null = null;
 
-    onBroadcastCreated?.(broadcastRecord);
-    setBroadcasting(false);
-    setBroadcastText('');
-    setBroadcastExpiresAt('');
-    setMessage('✓ Broadcast published to marquee display.');
+      if (isSupabaseConfigured) {
+        try {
+          const insertTask = (async () => {
+            try {
+              const payload = {
+                message: text,
+                ...(userId ? { created_by: userId } : {}),
+                expires_at: expiresIso,
+                active: true
+              };
+              const { data, error } = await supabase.from('broadcast_messages').insert(payload).select('*');
+              if (!error && data && data.length > 0) {
+                return data[0] as BroadcastMessage;
+              }
+              const { data: data2, error: error2 } = await supabase.from('broadcast_messages').insert({
+                message: text,
+                expires_at: expiresIso,
+                active: true
+              }).select('*');
+              if (!error2 && data2 && data2.length > 0) {
+                return data2[0] as BroadcastMessage;
+              }
+            } catch (err) {
+              console.warn('Supabase insert task error:', err);
+            }
+            return null;
+          })();
+
+          const timeoutTask = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
+          publishedBroadcast = await Promise.race([insertTask, timeoutTask]);
+        } catch (err) {
+          console.warn('Supabase broadcast race error:', err);
+        }
+      }
+
+      const broadcastRecord: BroadcastMessage = publishedBroadcast ?? {
+        id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}`,
+        message: text,
+        created_by: userId || undefined,
+        expires_at: expiresIso || undefined,
+        active: true,
+        created_at: new Date().toISOString()
+      };
+
+      try {
+        await cacheRows('broadcast_messages', [broadcastRecord]);
+      } catch (e) {
+        console.warn('Local cache broadcast write error:', e);
+      }
+
+      onBroadcastCreated?.(broadcastRecord);
+      setBroadcastText('');
+      setBroadcastExpiresAt('');
+      setMessage('✓ Broadcast published to marquee display.');
+    } catch (error) {
+      console.error('sendBroadcast failed:', error);
+      setMessage(error instanceof Error ? error.message : 'Broadcast failed.');
+    } finally {
+      setBroadcasting(false);
+    }
   }
 
   async function saveNode(event: React.FormEvent) {
