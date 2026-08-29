@@ -52,49 +52,49 @@ const CATEGORY_CONFIG: Record<
     labelMr: 'वैद्यकीय मदत',
     labelEn: 'Medical Emergency',
     icon: '🚑',
-    bg: 'bg-red-500/10 hover:bg-red-500/20',
-    border: 'border-red-500/40',
-    text: 'text-red-400'
+    bg: 'bg-red-50 hover:bg-red-100/80',
+    border: 'border-red-200',
+    text: 'text-red-700'
   },
   lost: {
     labelMr: 'रस्ता चुकले / नातेवाईक हरवले',
     labelEn: 'Lost Pilgrim / Missing Person',
     icon: '🏃',
-    bg: 'bg-amber-500/10 hover:bg-amber-500/20',
-    border: 'border-amber-500/40',
-    text: 'text-amber-400'
+    bg: 'bg-amber-50 hover:bg-amber-100/80',
+    border: 'border-amber-200',
+    text: 'text-amber-800'
   },
   accident: {
     labelMr: 'अपघात / दुखापत',
     labelEn: 'Accident / Severe Injury',
     icon: '🩹',
-    bg: 'bg-rose-500/10 hover:bg-rose-500/20',
-    border: 'border-rose-500/40',
-    text: 'text-rose-400'
+    bg: 'bg-rose-50 hover:bg-rose-100/80',
+    border: 'border-rose-200',
+    text: 'text-rose-800'
   },
   crowd: {
     labelMr: 'गर्दीचा धोका / चेंगराचेंगरी',
     labelEn: 'Crowd Surge / Stampede Risk',
     icon: '⚠️',
-    bg: 'bg-orange-500/10 hover:bg-orange-500/20',
-    border: 'border-orange-500/40',
-    text: 'text-orange-400'
+    bg: 'bg-orange-50 hover:bg-orange-100/80',
+    border: 'border-orange-200',
+    text: 'text-orange-800'
   },
   water_food: {
     labelMr: 'अन्न-पाणी टंचाई',
     labelEn: 'Food or Water Shortage',
     icon: '💧',
-    bg: 'bg-blue-500/10 hover:bg-blue-500/20',
-    border: 'border-blue-500/40',
-    text: 'text-blue-400'
+    bg: 'bg-blue-50 hover:bg-blue-100/80',
+    border: 'border-blue-200',
+    text: 'text-blue-800'
   },
   general: {
     labelMr: 'इतर आणीबाणी',
     labelEn: 'General Emergency / Immediate Aid',
     icon: '📢',
-    bg: 'bg-purple-500/10 hover:bg-purple-500/20',
-    border: 'border-purple-500/40',
-    text: 'text-purple-400'
+    bg: 'bg-purple-50 hover:bg-purple-100/80',
+    border: 'border-purple-200',
+    text: 'text-purple-800'
   }
 };
 
@@ -1288,11 +1288,11 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
   };
 
   return (
-    <div className={`min-h-screen space-y-6 bg-stone-950 p-4 text-white ${isStrobeActive ? (strobeColor === 'red' ? 'bg-red-950' : 'bg-amber-950') : ''} transition-colors duration-300`}>
+    <div className={`min-h-screen space-y-6 bg-slate-100/90 p-4 sm:p-6 text-slate-900 ${isStrobeActive ? (strobeColor === 'red' ? 'bg-red-100' : 'bg-amber-100') : ''} transition-colors duration-300`}>
 
       {/* Photosensitivity Safety Overlay Banner when Strobe Active */}
       {isStrobeActive && (
-        <div className="sticky top-2 z-[100] rounded-2xl bg-amber-500 text-stone-950 p-4 border-2 border-stone-900 shadow-2xl flex items-center justify-between gap-3 animate-pulse">
+        <div className="sticky top-2 z-[100] rounded-2xl bg-amber-400 text-slate-950 p-4 border-2 border-slate-900 shadow-2xl flex items-center justify-between gap-3 animate-pulse">
           <div className="flex items-center gap-2 text-xs sm:text-sm font-black">
             <span className="text-xl">⚠️</span>
             <span>{lang === 'mr' ? 'बीकन सुरू आहे: तीव्र प्रकाश झोत सुरू आहे (Photosensitivity Warning).' : 'BEACON ACTIVE: Rapid screen strobe is on (Photosensitivity Notice).'}</span>
@@ -1300,7 +1300,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
           <button
             type="button"
             onClick={() => setIsStrobeActive(false)}
-            className="px-4 py-2.5 rounded-xl bg-stone-950 text-white text-xs font-black uppercase shadow hover:bg-stone-900 shrink-0 touch-target-48 flex items-center gap-1"
+            className="px-4 py-2.5 rounded-xl bg-slate-950 text-white text-xs font-black uppercase shadow hover:bg-slate-900 shrink-0 touch-target-48 flex items-center gap-1"
           >
             <span>🛑</span>
             <span>{lang === 'mr' ? 'बीकन बंद करा' : 'STOP BEACON'}</span>
@@ -1309,16 +1309,16 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       )}
 
       {/* Top Banner & Multi-Hop Gateway Bar */}
-      <div className="rounded-2xl border border-stone-800 bg-stone-900 p-4 text-white shadow-sm space-y-3">
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 text-slate-900 shadow-sm space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
               <span className="text-2xl animate-pulse">🚩</span>
-              <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+              <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
                 {lang === 'mr' ? 'वारकरी मल्टी-हॉप मेश नेटवर्क' : 'Varkari Multi-Hop Mesh Network'}
               </h2>
             </div>
-            <p className="text-xs sm:text-sm text-orange-100 mt-1">
+            <p className="text-xs sm:text-sm text-slate-600 mt-1 font-medium">
               {lang === 'mr'
                 ? 'डिव्हाइस-टू-डिव्हाइस साखळी द्वारे नेटवर्क नसलेल्या भागातून बाह्य जगापर्यंत आपत्कालीन संदेश व बातम्या पोहोचवा'
                 : 'Hop messages through a chain of offline devices until reaching a connected Internet Gateway'}
@@ -1329,7 +1329,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
             <button
               type="button"
               onClick={() => setLang(lang === 'mr' ? 'en' : 'mr')}
-              className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-md text-xs font-black border border-white/30 transition"
+              className="px-3.5 py-2 rounded-xl bg-saffron-50 hover:bg-saffron-100 text-saffron-900 text-xs font-black border border-saffron-200 transition shadow-2xs"
             >
               🌐 {lang === 'mr' ? 'English' : 'मराठी'}
             </button>
@@ -1337,14 +1337,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         </div>
 
         {/* Live Internet Gateway Status Indicator */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/20 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 text-xs">
           <div className="flex items-center gap-2">
             <span
               className={`h-3 w-3 rounded-full ${
-                isOnlineGateway ? 'bg-emerald-400 animate-ping' : 'bg-amber-400 animate-pulse'
+                isOnlineGateway ? 'bg-emerald-500 animate-ping' : 'bg-amber-500 animate-pulse'
               }`}
             />
-            <span className="font-extrabold uppercase tracking-wide">
+            <span className="font-black uppercase tracking-wide text-slate-800">
               {isOnlineGateway
                 ? lang === 'mr'
                   ? '🌐 इंटरनेट गेटवे नोड सक्रिय'
@@ -1355,7 +1355,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-2 font-mono text-[11px] bg-black/20 px-3 py-1 rounded-full border border-white/10">
+          <div className="flex items-center gap-2 font-mono text-[11px] bg-slate-100 px-3 py-1 rounded-full border border-slate-200 text-slate-700 font-semibold">
             <span>Node ID: {deviceIdRef.current.slice(0, 12)}</span>
             <span>|</span>
             <span>Relayed to Web: {relayedCount}</span>
@@ -1364,14 +1364,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       </div>
 
       {/* Tabs Navigation Bar */}
-      <div className="flex flex-wrap gap-2 border-b border-stone-800 pb-2">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
         <button
           type="button"
           onClick={() => setActiveTab('sos')}
           className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
             activeTab === 'sos'
-              ? 'bg-red-600 text-white shadow-md font-black scale-102'
-              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+              ? 'bg-red-600 text-white shadow-md font-black scale-102 ring-2 ring-red-300'
+              : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
           }`}
         >
           <span>🚨</span>
@@ -1383,14 +1383,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
           onClick={() => setActiveTab('chat')}
           className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
             activeTab === 'chat'
-              ? 'bg-orange-600 text-white shadow-md font-black scale-102'
-              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+              ? 'bg-saffron-600 text-white shadow-md font-black scale-102 ring-2 ring-saffron-300'
+              : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
           }`}
         >
           <span>💬</span>
           <span>{lang === 'mr' ? 'मल्टी-हॉप मेश चॅट' : 'Multi-Hop Chat'}</span>
           {meshMessages.length > 0 && (
-            <span className="bg-orange-950 text-orange-200 px-2 py-0.5 rounded-full text-[10px]">
+            <span className="bg-saffron-100 text-saffron-900 px-2 py-0.5 rounded-full text-[10px] font-black">
               {meshMessages.length}
             </span>
           )}
@@ -1401,8 +1401,8 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
           onClick={() => setActiveTab('news')}
           className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
             activeTab === 'news'
-              ? 'bg-blue-600 text-white shadow-md font-black scale-102'
-              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+              ? 'bg-blue-600 text-white shadow-md font-black scale-102 ring-2 ring-blue-300'
+              : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
           }`}
         >
           <span>📰</span>
@@ -1414,8 +1414,8 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
           onClick={() => setActiveTab('goods')}
           className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
             activeTab === 'goods'
-              ? 'bg-emerald-600 text-white shadow-md font-black scale-102'
-              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+              ? 'bg-emerald-600 text-white shadow-md font-black scale-102 ring-2 ring-emerald-300'
+              : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
           }`}
         >
           <span>📦</span>
@@ -1427,8 +1427,8 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
           onClick={() => setActiveTab('mesh_topology')}
           className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 ${
             activeTab === 'mesh_topology'
-              ? 'bg-purple-600 text-white shadow-md font-black scale-102'
-              : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
+              ? 'bg-purple-600 text-white shadow-md font-black scale-102 ring-2 ring-purple-300'
+              : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
           }`}
         >
           <span>🕸️</span>
@@ -1437,27 +1437,27 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       </div>
 
       {/* Location Permission & Sensor Accuracy Card */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 shadow-sm space-y-3">
+      <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-3 text-slate-900">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl ${position ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
+            <div className={`p-3 rounded-2xl ${position ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
               📍
             </div>
             <div>
-              <p className="text-xs font-bold text-stone-400 uppercase tracking-wider">
+              <p className="text-xs font-black text-slate-500 uppercase tracking-wider">
                 {lang === 'mr' ? 'जीपीएस स्थान आणि अचूकता' : 'GPS Location & Sensor'}
               </p>
               {position ? (
-                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-stone-200">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-800 mt-0.5">
                   <span>
                     Lat: {position.coords.latitude.toFixed(5)}, Lng: {position.coords.longitude.toFixed(5)}
                   </span>
-                  <span className="inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-300 px-2 py-0.5 rounded-full font-bold">
+                  <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full font-black">
                     ±{Math.round(position.coords.accuracy)}m {lang === 'mr' ? 'अचूक' : 'Accuracy'}
                   </span>
                 </div>
               ) : (
-                <p className="text-xs font-semibold text-amber-400">
+                <p className="text-xs font-bold text-amber-700 mt-0.5">
                   {lang === 'mr' ? 'GPS स्थान मिळवत आहे... परवानगी आवश्यक' : 'Fetching GPS location... Permission needed'}
                 </p>
               )}
@@ -1469,7 +1469,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
               <button
                 type="button"
                 onClick={onRequestLocationPermission}
-                className="px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold shadow transition flex items-center gap-1"
+                className="px-3.5 py-2 rounded-xl bg-saffron-600 hover:bg-saffron-700 text-white text-xs font-black shadow transition flex items-center gap-1"
               >
                 <span>📡</span>
                 <span>{lang === 'mr' ? 'स्थानाची परवानगी द्या' : 'Grant Location Access'}</span>
@@ -1480,7 +1480,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
                 href={`https://maps.google.com/?q=${position.coords.latitude},${position.coords.longitude}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-bold transition flex items-center gap-1"
+                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold transition flex items-center gap-1"
               >
                 🗺️ {lang === 'mr' ? 'मॅप उघडा' : 'Open Map'}
               </a>
@@ -1490,7 +1490,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
 
         {/* Permission Error Banner */}
         {geoError && (
-          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-1">
+          <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
             <p className="font-bold flex items-center gap-1.5">
               <span>⚠️</span> {geoError}
             </p>
@@ -1498,12 +1498,12 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         )}
 
         {/* Manual Route Station Selector Fallback */}
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-stone-800 text-xs">
-          <span className="font-bold text-stone-400">
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
+          <span className="font-bold text-slate-500">
             {lang === 'mr' ? 'स्थान स्वतः निवडा:' : 'Select Location Manually:'}
           </span>
           <select
-            className="px-3 py-1.5 rounded-xl border border-stone-700 bg-stone-800 text-stone-100 font-bold"
+            className="px-3 py-1.5 rounded-xl border border-slate-300 bg-slate-50 text-slate-900 font-bold"
             onChange={(e) => {
               const node = nodes.find((n) => n.id === e.target.value);
               if (node && onSetManualLocation) {
@@ -1526,13 +1526,13 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
 
       {/* TAB 1: Emergency SOS Panic Trigger */}
       {activeTab === 'sos' && (
-        <div className="bg-stone-900 border-2 border-red-500/30 rounded-3xl p-5 shadow-xl space-y-5">
-          <div className="flex items-center justify-between border-b border-stone-800 pb-3">
-            <h3 className="text-lg font-black text-stone-100 flex items-center gap-2">
+        <div className="bg-white border-2 border-red-500/30 rounded-3xl p-6 shadow-lg space-y-5 text-slate-900">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
               <span>🚨</span>
               {lang === 'mr' ? 'आणीबाणीचा प्रकार निवडा' : 'Select Emergency Category'}
             </h3>
-            <span className="text-xs font-extrabold uppercase px-2.5 py-1 rounded-full bg-red-950/50 text-red-300">
+            <span className="text-xs font-black uppercase px-3 py-1 rounded-full bg-red-100 text-red-700">
               {lang === 'mr' ? '1-क्लिक SOS' : 'Instant 1-Click'}
             </span>
           </div>
