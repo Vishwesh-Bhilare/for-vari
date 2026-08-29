@@ -256,46 +256,7 @@ export function EmergencyContacts() {
             )}
           </div>
 
-          {/* Quick 1-Tap Helpline Buttons */}
-          <div>
-            <h3 className="text-xs font-extrabold uppercase tracking-wide text-stone-500 mb-2">
-              {lang === 'mr' ? 'सर्व आपत्कालीन क्रमांक (Quick 1-Tap Dial):' : 'All Helplines (Quick 1-Tap Dial):'}
-            </h3>
 
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {OFFICIAL_EMERGENCY_CONTACTS.map((item) => (
-                <div
-                  key={item.id}
-                  className={`flex items-center justify-between gap-2 rounded-2xl border p-3 bg-white ${
-                    selectedId === item.id ? 'border-red-500 ring-2 ring-red-500/20' : 'border-cream-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xl">{item.icon}</span>
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-extrabold text-stone-900">
-                        {lang === 'mr' ? item.nameMr : item.name}
-                      </p>
-                      <span className={`inline-block rounded-md px-1.5 py-0.5 text-[10px] font-bold ${item.badgeBg} ${item.badgeText}`}>
-                        {item.number}
-                      </span>
-                    </div>
-                  </div>
-
-                  <a
-                    href={`tel:${item.number}`}
-                    onClick={(e) => {
-                      triggerCall(item.number);
-                    }}
-                    className="flex h-10 px-3 items-center justify-center gap-1 rounded-xl bg-emerald-600 text-xs font-extrabold text-white shadow-xs hover:bg-emerald-700 active:scale-95 transition-all shrink-0"
-                  >
-                    <span>📞</span>
-                    <span>Call</span>
-                  </a>
-                </div>
-              ))}
-            </div>
-          </div>
 
           {/* Personal Emergency Contacts */}
           <div className="border-t border-cream-200 pt-4">
