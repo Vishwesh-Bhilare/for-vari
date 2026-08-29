@@ -87,6 +87,36 @@ const CATEGORY_CONFIG: Record<
   }
 };
 
+
+
+type MeshPacket = {
+  type: string;
+  payload: unknown;
+  packetId: string;
+  hopCount: number;
+  relayPath: string[];
+};
+
+const getOrCreateDeviceId = (displayName?: string) => {
+  const storageKey = 'vari-mitra-mesh-device-id';
+  try {
+    const existingId = window.localStorage.getItem(storageKey);
+    if (existingId) return existingId;
+
+    const friendlyName = displayName?.trim()
+      ? displayName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      : 'varkari';
+    const randomBytes = new Uint8Array(4);
+    window.crypto.getRandomValues(randomBytes);
+    const randomSuffix = Array.from(randomBytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const deviceId = `node-${friendlyName}-${randomSuffix}`;
+    window.localStorage.setItem(storageKey, deviceId);
+    return deviceId;
+  } catch {
+    return `node-varkari-${Date.now().toString(36)}`;
+  }
+};
+
 const QUICK_MESSAGES = [
   { mr: '🚩 मी सुरक्षित आहे', en: '🚩 I am safe' },
   { mr: '🚑 रुग्णवाहिका तातडीने पाठवा!', en: '🚑 Send an ambulance urgently!' },
@@ -133,9 +163,13 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
   const [goodsServices, setGoodsServices] = useState<MeshGoodsService[]>([]);
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [chatText, setChatText] = useState('');
-  const [btStatus, setBtStatus] = useState<string>('Ready for Bluetooth P2P scanning');
+  const [btStatus, setBtStatus] = useState<string>('Ready to request nearby-device permission');
   const [connectedBtDevices, setConnectedBtDevices] = useState<string[]>([]);
   const [isBtSupported, setIsBtSupported] = useState(false);
+  const [offlinePeerStatus, setOfflinePeerStatus] = useState('No offline peers connected yet.');
+  const [localPairingCode, setLocalPairingCode] = useState('');
+  const [remotePairingCode, setRemotePairingCode] = useState('');
+  const [pendingOfferCode, setPendingOfferCode] = useState('');
 
   // Gateway status
   const [isOnlineGateway, setIsOnlineGateway] = useState<boolean>(navigator.onLine);
@@ -149,13 +183,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
   const [gsDesc, setGsDesc] = useState('');
 
   // Device unique identifier for relay paths
-  const deviceIdRef = useRef<string>(
-    `node-${profile?.display_name ? profile.display_name.toLowerCase().replace(/\s+/g, '-') : 'varkari'}-${Math.random().toString(36).slice(2, 6)}`
-  );
+  const deviceIdRef = useRef<string>(getOrCreateDeviceId(profile?.display_name));
 
   // BroadcastChannel & Supabase Realtime for cross-device & local mesh routing
   const meshChannelRef = useRef<BroadcastChannel | null>(null);
   const realtimeChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const offlinePeerConnectionsRef = useRef<RTCPeerConnection[]>([]);
+  const offlineDataChannelsRef = useRef<RTCDataChannel[]>([]);
+  const meshPacketHandlerRef = useRef<((packet: MeshPacket) => void) | null>(null);
   const pitchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // State for nearby active SOS alerts triggered by other Varkaris
@@ -180,13 +215,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    const processIncomingPacket = (packet: {
-      type: string;
-      payload: unknown;
-      packetId: string;
-      hopCount: number;
-      relayPath: string[];
-    }) => {
+    const processIncomingPacket = (packet: MeshPacket) => {
       if (!packet?.packetId || seenPacketIds.has(packet.packetId)) return;
       seenPacketIds.add(packet.packetId);
 
@@ -204,10 +233,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         void saveMeshMessage(updatedMsg);
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: updatedMsg.hop_count,
             relayPath: updatedMsg.relay_path
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
 
@@ -230,10 +263,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         onSosCreated?.(updatedAlert);
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: updatedAlert.hop_count,
             relayPath: updatedAlert.relay_path
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
 
@@ -255,10 +292,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         setNearbySosAlerts((prev) => prev.map((a) => (a.id === alert.id ? updatedAlert : a)));
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: currentHop,
             relayPath: currentPath
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
       } else if (packet.type === 'RESOLVE_SOS_ALERT') {
@@ -270,10 +311,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         setNearbySosAlerts((prev) => prev.filter((a) => a.id !== alert.id));
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: currentHop,
             relayPath: currentPath
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
       } else if (packet.type === 'NEW_NEWS_BROADCAST') {
@@ -286,10 +331,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         void saveMeshNews(updatedNews);
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: currentHop,
             relayPath: currentPath
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
       } else if (packet.type === 'NEW_GOODS_SERVICE') {
@@ -302,14 +351,19 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         void saveMeshGoodsService(updatedItem);
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: currentHop,
             relayPath: currentPath
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
       }
     };
+    meshPacketHandlerRef.current = processIncomingPacket;
 
     // Initialize local BroadcastChannel (same device / tabs)
     if ('BroadcastChannel' in window) {
@@ -338,6 +392,11 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       window.removeEventListener('offline', handleOffline);
       meshChannelRef.current?.close();
       if (realtimeChannelRef.current) void supabase.removeChannel(realtimeChannelRef.current);
+      offlineDataChannelsRef.current.forEach((channel) => channel.close());
+      offlinePeerConnectionsRef.current.forEach((connection) => connection.close());
+      offlineDataChannelsRef.current = [];
+      offlinePeerConnectionsRef.current = [];
+      meshPacketHandlerRef.current = null;
       stopSiren();
     };
   }, []);
@@ -511,7 +570,12 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
     // 1. Local BroadcastChannel (same browser / tabs)
     meshChannelRef.current?.postMessage(packet);
 
-    // 2. Realtime Channel (Cross-device across Wi-Fi / Internet)
+    // 2. Direct offline peer links created after a user gesture and pairing-code exchange
+    offlineDataChannelsRef.current.forEach((channel) => {
+      if (channel.readyState === 'open') channel.send(JSON.stringify(packet));
+    });
+
+    // 3. Realtime Channel (Cross-device across Wi-Fi / Internet)
     if (realtimeChannelRef.current) {
       void realtimeChannelRef.current.send({
         type: 'broadcast',
@@ -533,7 +597,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
 
     const sosPayload: SosAlert = {
       member_id: currentMemberId || `guest-${Date.now()}`,
-      node_id: nearestNodeId || nodes[0]?.id || 'dehu-node',
+      node_id: nearestNodeId || nodes[0]?.id || `manual-${deviceIdRef.current}`,
       lat,
       lng,
       accuracy,
@@ -697,6 +761,97 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
 
     // Multi-hop broadcast to mesh
     broadcastMeshPacket('NEW_GOODS_SERVICE', item, packetId);
+  };
+
+  const waitForIceGatheringComplete = (connection: RTCPeerConnection) =>
+    new Promise<void>((resolve) => {
+      if (connection.iceGatheringState === 'complete') {
+        resolve();
+        return;
+      }
+
+      const timeout = window.setTimeout(() => {
+        connection.removeEventListener('icegatheringstatechange', handleChange);
+        resolve();
+      }, 5000);
+
+      function handleChange() {
+        if (connection.iceGatheringState === 'complete') {
+          window.clearTimeout(timeout);
+          connection.removeEventListener('icegatheringstatechange', handleChange);
+          resolve();
+        }
+      }
+
+      connection.addEventListener('icegatheringstatechange', handleChange);
+    });
+
+  const registerOfflineDataChannel = (channel: RTCDataChannel) => {
+    channel.onopen = () => {
+      setConnectedBtDevices((prev) => Array.from(new Set([...prev, `Offline peer ${offlineDataChannelsRef.current.length + 1}`])));
+      setOfflinePeerStatus('Offline peer connected. Messages will be sent directly without internet.');
+    };
+    channel.onclose = () => {
+      offlineDataChannelsRef.current = offlineDataChannelsRef.current.filter((existing) => existing !== channel);
+      setOfflinePeerStatus(offlineDataChannelsRef.current.length > 0 ? 'Offline peer disconnected; other peers remain connected.' : 'No offline peers connected yet.');
+    };
+    channel.onmessage = (event) => {
+      try {
+        meshPacketHandlerRef.current?.(JSON.parse(event.data));
+      } catch (err) {
+        console.warn('Unable to read offline mesh packet:', err);
+      }
+    };
+    offlineDataChannelsRef.current.push(channel);
+  };
+
+  const createOfflinePeerConnection = () => {
+    const connection = new RTCPeerConnection({ iceServers: [] });
+    connection.ondatachannel = (event) => registerOfflineDataChannel(event.channel);
+    connection.onconnectionstatechange = () => setOfflinePeerStatus(`Offline peer connection: ${connection.connectionState}`);
+    offlinePeerConnectionsRef.current.push(connection);
+    return connection;
+  };
+
+  const handleCreateOfflineOffer = async () => {
+    try {
+      const connection = createOfflinePeerConnection();
+      const channel = connection.createDataChannel('vari-mitra-offline-mesh');
+      registerOfflineDataChannel(channel);
+      await connection.setLocalDescription(await connection.createOffer());
+      await waitForIceGatheringComplete(connection);
+      setLocalPairingCode(JSON.stringify(connection.localDescription));
+      setOfflinePeerStatus('Offer created. Share this code with the nearby device, then paste their answer below.');
+    } catch (err) {
+      setOfflinePeerStatus(`Could not create offline offer: ${err instanceof Error ? err.message : 'unknown error'}`);
+    }
+  };
+
+  const handleJoinOfflineOffer = async () => {
+    try {
+      const connection = createOfflinePeerConnection();
+      await connection.setRemoteDescription(JSON.parse(remotePairingCode));
+      await connection.setLocalDescription(await connection.createAnswer());
+      await waitForIceGatheringComplete(connection);
+      setLocalPairingCode(JSON.stringify(connection.localDescription));
+      setOfflinePeerStatus('Answer created. Share this answer code back to the first device.');
+    } catch (err) {
+      setOfflinePeerStatus(`Could not join offline offer: ${err instanceof Error ? err.message : 'check the pasted code'}`);
+    }
+  };
+
+  const handleAcceptOfflineAnswer = async () => {
+    try {
+      const latestConnection = offlinePeerConnectionsRef.current.at(-1);
+      if (!latestConnection) {
+        setOfflinePeerStatus('Create an offer before accepting an answer.');
+        return;
+      }
+      await latestConnection.setRemoteDescription(JSON.parse(pendingOfferCode));
+      setOfflinePeerStatus('Offline answer accepted. Waiting for peer connection to open.');
+    } catch (err) {
+      setOfflinePeerStatus(`Could not accept offline answer: ${err instanceof Error ? err.message : 'check the pasted code'}`);
+    }
   };
 
   // Web Bluetooth Scan & Pair for Offline Direct Mesh
@@ -1639,6 +1794,68 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
             <p className="text-xs text-stone-400 text-center italic">
               Messages continuously hop between devices until encountering any node with cellular/Wi-Fi connection to upload SOS alerts and download disaster news.
             </p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-stone-800/70 border border-stone-700 space-y-3">
+            <div>
+              <h4 className="text-xs font-extrabold uppercase text-purple-300">
+                {lang === 'mr' ? 'इंटरनेटशिवाय थेट संदेश जोडणी' : 'Direct offline text link'}
+              </h4>
+              <p className="mt-1 text-[11px] text-stone-400">
+                {lang === 'mr'
+                  ? 'दोन्ही उपकरणे जवळ असताना, वापरकर्त्याच्या कृतीनंतर ब्राउझर WebRTC स्थानिक peer कनेक्शन तयार करतो. कोणताही STUN/TURN सर्व्हर किंवा हार्डकोड गेटवे वापरला जात नाही.'
+                  : 'Nearby devices can exchange pairing codes to open a local WebRTC data channel. No STUN/TURN server, hardcoded gateway, or internet connection is required.'}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => void handleCreateOfflineOffer()}
+                  className="w-full px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow transition"
+                >
+                  {lang === 'mr' ? 'जोडणी कोड तयार करा' : 'Create offline pairing code'}
+                </button>
+                <textarea
+                  readOnly
+                  value={localPairingCode}
+                  placeholder={lang === 'mr' ? 'इथे तुमचा शेअर करण्याचा कोड दिसेल' : 'Your code to share appears here'}
+                  className="h-24 w-full rounded-xl border border-stone-700 bg-stone-950 p-2 text-[10px] text-stone-200"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <textarea
+                  value={remotePairingCode}
+                  onChange={(e) => setRemotePairingCode(e.target.value)}
+                  placeholder={lang === 'mr' ? 'दुसऱ्या उपकरणाचा offer code पेस्ट करा' : 'Paste another device offer code'}
+                  className="h-16 w-full rounded-xl border border-stone-700 bg-stone-950 p-2 text-[10px] text-stone-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleJoinOfflineOffer()}
+                  className="w-full px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow transition"
+                >
+                  {lang === 'mr' ? 'Offer मध्ये सामील व्हा / Answer तयार करा' : 'Join offer / create answer'}
+                </button>
+                <textarea
+                  value={pendingOfferCode}
+                  onChange={(e) => setPendingOfferCode(e.target.value)}
+                  placeholder={lang === 'mr' ? 'पहिल्या उपकरणावर answer code पेस्ट करा' : 'On the first device, paste answer code here'}
+                  className="h-16 w-full rounded-xl border border-stone-700 bg-stone-950 p-2 text-[10px] text-stone-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleAcceptOfflineAnswer()}
+                  className="w-full px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow transition"
+                >
+                  {lang === 'mr' ? 'Answer स्वीकारा' : 'Accept answer'}
+                </button>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-300 font-mono">{offlinePeerStatus}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
