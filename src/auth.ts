@@ -196,7 +196,7 @@ export async function signIn(email: string, password: string) {
   return data;
 }
 
-export async function signUp(email: string, password: string, displayName?: string) {
+export async function signUp(email: string, password: string, displayName?: string, photoFile?: File) {
   assertSupabaseConfigured();
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -208,8 +208,34 @@ export async function signUp(email: string, password: string, displayName?: stri
     throw error;
   }
   if (data.user) {
+    let photo_url: string | undefined;
+    if (photoFile) {
+      try {
+        const path = `profiles/${data.user.id}-${photoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const { data: uploadRes, error: uploadErr } = await supabase.storage.from('member-photos').upload(path, photoFile, { upsert: true });
+        if (!uploadErr && uploadRes) {
+          photo_url = supabase.storage.from('member-photos').getPublicUrl(uploadRes.path).data.publicUrl;
+        } else {
+          photo_url = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(photoFile);
+          });
+        }
+      } catch (err) {
+        photo_url = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(photoFile);
+        });
+      }
+    }
+
     try {
-      await ensureProfile(data.user.id, displayName);
+      const profile = await ensureProfile(data.user.id, displayName);
+      if (photo_url) {
+        await supabase.from('profiles').update({ photo_url }).eq('id', data.user.id);
+      }
     } catch (profileErr) {
       logAuthError('ensureProfile failed after signUp (handled gracefully)', profileErr);
     }

@@ -26,6 +26,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [registerPhoto, setRegisterPhoto] = useState<File | null>(null);
   const [signInRole, setSignInRole] = useState<UserRole>('pilgrim');
 
   const modalRef = useRef<HTMLDivElement>(null);
@@ -50,6 +51,7 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
       setRegisterEmail('');
       setRegisterPassword('');
       setConfirmPassword('');
+      setRegisterPhoto(null);
       setLoading(false);
     }
   }, [open]);
@@ -124,10 +126,14 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
       setError('Passwords do not match.');
       return;
     }
+    if (!registerPhoto) {
+      setError('📷 Pilgrim photo upload is compulsory. Please select your photo.');
+      return;
+    }
 
     setLoading(true);
     try {
-      await signUp(registerEmail.trim(), registerPassword, displayName.trim());
+      await signUp(registerEmail.trim(), registerPassword, displayName.trim(), registerPhoto);
       setSuccess('Account created successfully. Please check your email if email confirmation is enabled.');
       setTimeout(() => {
         onClose();
@@ -387,6 +393,30 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
                 required
               />
             </div>
+            {/* Compulsory Pilgrim Photo Upload Field */}
+            <div className="rounded-2xl border-2 border-dashed border-saffron-300 bg-saffron-50/60 p-3.5 text-center">
+              <label className="block text-xs font-extrabold uppercase tracking-wider text-saffron-950 mb-1">
+                📷 Pilgrim Photo <span className="text-red-600 font-black">(Compulsory *)</span>
+              </label>
+              <p className="text-[11px] text-stone-500 mb-2">Upload your clear photo for group identity & safety tracking.</p>
+              
+              {registerPhoto ? (
+                <div className="flex flex-col items-center gap-1.5">
+                  <img src={URL.createObjectURL(registerPhoto)} alt="Preview" className="h-16 w-16 rounded-full object-cover border-2 border-saffron-600 shadow-sm" />
+                  <span className="text-xs font-bold text-green-700">✓ Photo selected: {registerPhoto.name}</span>
+                  <label className="cursor-pointer text-xs font-bold text-saffron-700 underline">
+                    Change photo
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) setRegisterPhoto(file); }} />
+                  </label>
+                </div>
+              ) : (
+                <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-saffron-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-saffron-700 transition-colors">
+                  <span>📤 Choose Pilgrim Photo *</span>
+                  <input type="file" accept="image/*" required className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) setRegisterPhoto(file); }} />
+                </label>
+              )}
+            </div>
+
             <button
               type="submit"
               className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm hover:bg-saffron-500 active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
