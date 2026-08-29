@@ -232,7 +232,9 @@ export function AdminLogin({
     setBroadcasting(true);
     setMessage('');
 
-    const expiresIso = broadcastExpiresAt ? new Date(broadcastExpiresAt).toISOString() : null;
+    const expiresIso = broadcastExpiresAt && new Date(broadcastExpiresAt).getTime() > Date.now()
+      ? new Date(broadcastExpiresAt).toISOString()
+      : null;
     const localBroadcast: BroadcastMessage = {
       id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}`,
       message: text,

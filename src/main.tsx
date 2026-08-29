@@ -413,8 +413,8 @@ function App() {
   const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
   const latestTrafficReports = useMemo(() => nodes.map((node) => ({ node, status: trafficReports.find((r) => r.node_id === node.id)?.status ?? 'unknown' as TrafficStatus })), [nodes, trafficReports]);
   const activeBroadcasts = useMemo(() => broadcastMessages
-    .filter((message) => message.active !== false && (!message.expires_at || new Date(message.expires_at).getTime() > Date.now()))
-    .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
+    .filter((message) => message.active !== false && (!message.expires_at || isNaN(new Date(message.expires_at).getTime()) || new Date(message.expires_at).getTime() > Date.now()))
+    .sort((a, b) => new Date(b.created_at ?? Date.now()).getTime() - new Date(a.created_at ?? Date.now()).getTime())
     .slice(0, 3), [broadcastMessages]);
   const broadcastMarqueeText = activeBroadcasts.map((message) => `📢 ${message.message}`).join('   •   ');
   const nearestNodeId = useMemo(() => nodes.map((node) => ({ node, distance: getDistanceMeters(position?.coords, node.lat, node.lng) })).sort((a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY))[0]?.node.id ?? nodes[0]?.id ?? '', [nodes, position?.coords]);
