@@ -199,6 +199,18 @@ function App() {
   const [newNodeName, setNewNodeName] = useState('');
   const [lostTab, setLostTab] = useState<'register' | 'find'>('register');
   const [guestLanguage, setGuestLanguage] = useState<'en' | 'mr'>('en');
+  const [isSunlightMode, setIsSunlightMode] = useState(false);
+  const toggleSunlightMode = () => {
+    setIsSunlightMode((prev) => {
+      const next = !prev;
+      if (next) {
+        document.body.classList.add('sunlight-mode');
+      } else {
+        document.body.classList.remove('sunlight-mode');
+      }
+      return next;
+    });
+  };
   const guestCopy = guestLanguage === 'mr'
     ? {
       title: 'सुरक्षित वारी प्रवासाची योजना करा',
@@ -690,7 +702,42 @@ function App() {
     <main className="min-h-screen bg-saffron-50 text-stone-900">
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
       <header className="bg-stone-950 px-4 py-3 text-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3"><div className="flex items-center gap-2.5"><img src="/vari_logo.png" alt="Wari Companion Logo" className="h-8 w-8 rounded-xl object-cover shadow border border-saffron-500/40" /><div><h1 className="text-base font-extrabold leading-tight">Wari Companion</h1><p className="text-xs font-semibold uppercase tracking-widest text-stone-400">Pandharpur Vari</p></div></div><nav className="hidden lg:flex items-center gap-1"><button onClick={() => changeView('pilgrim')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'pilgrim' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Pilgrim view</button><button onClick={() => changeView('news')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'news' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>📰 Live News</button><button onClick={() => changeView('helplines')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'helplines' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>📞 Helplines</button><button onClick={() => changeView('sos_mesh')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'sos_mesh' ? 'bg-red-600 text-white' : 'text-red-400 hover:bg-red-900/40'}`}>SOS mesh</button><button onClick={() => changeView('admin')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'admin' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Admin</button></nav>{session ? <button onClick={() => void handleSignOut()} className="flex h-8 w-8 items-center justify-center rounded-full bg-saffron-600 text-xs font-bold text-white">{(profile?.display_name ?? session.user.email ?? '?').slice(0, 2).toUpperCase()}</button> : <button onClick={() => setShowAuthModal(true)} className="rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-semibold text-stone-300">Sign in</button>}</div>
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <img src="/vari_logo.png" alt="Wari Companion Logo" className="h-8 w-8 rounded-xl object-cover shadow border border-saffron-500/40" />
+            <div>
+              <h1 className="text-base font-extrabold leading-tight">Wari Companion</h1>
+              <p className="text-xs font-semibold uppercase tracking-widest text-stone-400">Pandharpur Vari</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleSunlightMode}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1 ${
+                isSunlightMode
+                  ? 'bg-amber-400 text-stone-950 border-stone-900 shadow-md'
+                  : 'bg-stone-800 text-stone-200 border-stone-700 hover:bg-stone-700'
+              }`}
+              title="Toggle High-Contrast Direct Sunlight Solar Theme"
+            >
+              <span>☀️</span>
+              <span className="hidden sm:inline">{isSunlightMode ? 'Sunlight ON' : 'High Contrast'}</span>
+            </button>
+            <nav className="hidden lg:flex items-center gap-1">
+              <button onClick={() => changeView('pilgrim')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'pilgrim' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Pilgrim view</button>
+              <button onClick={() => changeView('news')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'news' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>📰 Live News</button>
+              <button onClick={() => changeView('helplines')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'helplines' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>📞 Helplines</button>
+              <button onClick={() => changeView('sos_mesh')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'sos_mesh' ? 'bg-red-600 text-white' : 'text-red-400 hover:bg-red-900/40'}`}>SOS mesh</button>
+              <button onClick={() => changeView('admin')} className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${view === 'admin' ? 'bg-saffron-600 text-white' : 'text-stone-300 hover:bg-stone-800 hover:text-white'}`}>Admin</button>
+            </nav>
+            {session ? (
+              <button onClick={() => void handleSignOut()} className="flex h-8 w-8 items-center justify-center rounded-full bg-saffron-600 text-xs font-bold text-white">{(profile?.display_name ?? session.user.email ?? '?').slice(0, 2).toUpperCase()}</button>
+            ) : (
+              <button onClick={() => setShowAuthModal(true)} className="rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-semibold text-stone-300">Sign in</button>
+            )}
+          </div>
+        </div>
       </header>
       {activeBroadcasts.length > 0 && <div className="sticky top-0 z-[60] overflow-hidden border-y border-amber-300 bg-amber-100 py-2 text-amber-950 shadow-sm" role="status" aria-live="polite" aria-label="Admin broadcasts"><div className="broadcast-marquee whitespace-nowrap text-sm font-extrabold"><span className="mr-10">{broadcastMarqueeText}</span><span>{broadcastMarqueeText}</span></div></div>}
       {(notice || authError || profileError || applicationError) && <div className={`mx-4 mt-3 rounded-xl border p-3 text-sm font-semibold ${notice?.type === 'success' ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'}`}>{notice?.text ?? authError ?? profileError ?? applicationError}</div>}
@@ -705,8 +752,23 @@ function App() {
         {showTrafficSheet && <><div className="fixed inset-0 z-40 bg-stone-900/40" onClick={() => setShowTrafficSheet(false)}/><div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl transition-transform duration-300 ease-out"><div className="mx-auto mb-4 h-1 w-12 rounded-full bg-stone-200"/><h2 className="text-base font-extrabold">Report traffic status</h2><p className="mt-1 text-xs text-stone-500">Reports color the route on the map near this node.</p><select className="mt-4 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" value={selectedNode} onChange={e=>setSelectedNode(e.target.value)}>{nodes.map(n=><option key={n.id} value={n.id}>{n.name}</option>)}</select><div className="mt-3 grid grid-cols-2 gap-2">{(['clear','moderate','heavy','jam'] as TrafficStatus[]).map(s=><button key={s} onClick={() => { void reportTraffic(s); setShowTrafficSheet(false); }} className="flex min-h-[64px] flex-col items-center justify-center rounded-xl border-2 text-sm font-bold" style={{ borderColor: trafficClass[s], backgroundColor: `${trafficClass[s]}14`, color: trafficClass[s] }}>{trafficLabel[s]}</button>)}</div></div></>}
         {showAddNodeSheet && <><div className="fixed inset-0 z-40 bg-stone-900/40" onClick={() => setShowAddNodeSheet(false)}/><div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl transition-transform duration-300 ease-out"><div className="mx-auto mb-4 h-1 w-12 rounded-full bg-stone-200"/><h2 className="text-base font-extrabold">Add a node for your group</h2><p className="mt-1 text-xs text-stone-500">Only pilgrims in your group ({registeredGroup || 'no group yet'}) will see this on the map.</p>{!position && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-700">Share your device location first — the node is placed at your current position.</p>}<input className="mt-4 w-full min-h-[44px] rounded-xl border border-cream-200 bg-violet-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-violet-600 focus:ring-2 focus:ring-violet-600/20 focus:outline-none" value={newNodeName} onChange={e=>setNewNodeName(e.target.value)} placeholder="e.g. our tent, meeting point..."/><button disabled={!position || !newNodeName.trim()} onClick={() => { void addGroupNode(); setShowAddNodeSheet(false); }} className="mt-3 w-full min-h-[48px] rounded-xl bg-violet-600 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50">Add node at my location</button></div></>}
       </div>}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-16 border-t border-cream-200 bg-white pb-safe lg:hidden">{([['pilgrim','🗺️','Pilgrim'],['news','📰','News'],['helplines','📞','Helplines'],['sos_mesh','🚨','SOS'],['admin','⚡','Admin']] as const).map(([target,icon,label]) => { const isActive = view === target; return <button key={label} onClick={() => changeView(target)} className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-semibold ${label === 'SOS' ? 'text-red-600' : isActive ? 'border-t-2 border-saffron-600 text-saffron-600' : 'text-stone-400'}`}><span className="text-xl">{icon}</span>{label === 'SOS' && activeSosCount > 0 && <span className="absolute top-2 ml-5 h-2 w-2 animate-pulse rounded-full bg-red-500"/>}<span>{label}</span></button>; })}</nav>
-      {activeSosCount === 0 && view === 'pilgrim' && <button onClick={sendSos} className="fixed bottom-[72px] left-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-xl text-white shadow-lg">🚨</button>}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-16 border-t border-cream-200 bg-white pb-safe lg:hidden">{([['pilgrim','🗺️','Pilgrim'],['news','📰','News'],['helplines','📞','Helplines'],['sos_mesh','🚨','SOS'],['admin','⚡','Admin']] as const).map(([target,icon,label]) => { const isActive = view === target; return <button key={label} onClick={() => changeView(target)} className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-semibold ${label === 'SOS' ? 'text-red-600 font-extrabold' : isActive ? 'border-t-2 border-saffron-600 text-saffron-600 font-bold' : 'text-stone-400'}`}><span className="text-xl">{icon}</span>{label === 'SOS' && activeSosCount > 0 && <span className="absolute top-2 ml-5 h-2.5 w-2.5 animate-pulse rounded-full bg-red-500 ring-2 ring-white"/>}<span>{label}</span></button>; })}</nav>
+      {/* Persistent Floating 1-Tap Emergency SOS Launcher across ALL views */}
+      {view !== 'sos_mesh' && (
+        <button
+          onClick={sendSos}
+          className="fixed bottom-[76px] right-4 z-[90] flex items-center gap-2 px-4 py-3 rounded-full bg-red-600 hover:bg-red-700 text-white font-black text-sm shadow-2xl sos-pulse-btn border-2 border-white/40 touch-target-48"
+          aria-label="Trigger Emergency SOS"
+        >
+          <span className="text-xl">🚨</span>
+          <span className="tracking-wide">SOS (आणीबाणी)</span>
+          {activeSosCount > 0 && (
+            <span className="ml-1 px-2 py-0.5 rounded-full bg-white text-red-700 text-xs font-black animate-pulse">
+              {activeSosCount}
+            </span>
+          )}
+        </button>
+      )}
     </main>
   );
 }

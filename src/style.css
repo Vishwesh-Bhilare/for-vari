@@ -18,6 +18,59 @@
 .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
 .sos-hold-ring { background: conic-gradient(#dc2626 var(--sos-progress, 0%), transparent 0); }
 
+/* High-Contrast Sunlight Mode Utility */
+body.sunlight-mode {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+body.sunlight-mode select,
+body.sunlight-mode input,
+body.sunlight-mode button,
+body.sunlight-mode div {
+  border-color: #000000 !important;
+}
+
+/* Minimum 48px Touch Targets for Stressed/Sweaty/Gloved Hands (WCAG 2.1) */
+.touch-target-48 {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+/* Colorblind Dual-Coding Helper Borders */
+.border-pattern-medical {
+  border-style: solid;
+  border-width: 3px;
+  border-color: #dc2626;
+}
+
+.border-pattern-crowd {
+  border-style: dashed;
+  border-width: 3px;
+  border-color: #ea580c;
+}
+
+.border-pattern-lost {
+  border-style: double;
+  border-width: 4px;
+  border-color: #d97706;
+}
+
+.border-pattern-water {
+  border-style: dotted;
+  border-width: 3px;
+  border-color: #0284c7;
+}
+
+/* Emergency Pulse Animation */
+@keyframes sos-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
+  50% { transform: scale(1.05); box-shadow: 0 0 0 14px rgba(220, 38, 38, 0); }
+}
+
+.sos-pulse-btn {
+  animation: sos-pulse 2s infinite;
+}
 
 .broadcast-marquee {
   display: inline-block;
@@ -37,4 +90,8 @@
     padding-left: 1rem;
     animation: none;
   }
+  .sos-pulse-btn {
+    animation: none;
+  }
 }
+

@@ -1290,6 +1290,24 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
   return (
     <div className={`min-h-screen space-y-6 bg-stone-950 p-4 text-white ${isStrobeActive ? (strobeColor === 'red' ? 'bg-red-950' : 'bg-amber-950') : ''} transition-colors duration-300`}>
 
+      {/* Photosensitivity Safety Overlay Banner when Strobe Active */}
+      {isStrobeActive && (
+        <div className="sticky top-2 z-[100] rounded-2xl bg-amber-500 text-stone-950 p-4 border-2 border-stone-900 shadow-2xl flex items-center justify-between gap-3 animate-pulse">
+          <div className="flex items-center gap-2 text-xs sm:text-sm font-black">
+            <span className="text-xl">⚠️</span>
+            <span>{lang === 'mr' ? 'बीकन सुरू आहे: तीव्र प्रकाश झोत सुरू आहे (Photosensitivity Warning).' : 'BEACON ACTIVE: Rapid screen strobe is on (Photosensitivity Notice).'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsStrobeActive(false)}
+            className="px-4 py-2.5 rounded-xl bg-stone-950 text-white text-xs font-black uppercase shadow hover:bg-stone-900 shrink-0 touch-target-48 flex items-center gap-1"
+          >
+            <span>🛑</span>
+            <span>{lang === 'mr' ? 'बीकन बंद करा' : 'STOP BEACON'}</span>
+          </button>
+        </div>
+      )}
+
       {/* Top Banner & Multi-Hop Gateway Bar */}
       <div className="rounded-2xl border border-stone-800 bg-stone-900 p-4 text-white shadow-sm space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1524,19 +1542,31 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
             {(Object.keys(CATEGORY_CONFIG) as SosCategory[]).map((catKey) => {
               const config = CATEGORY_CONFIG[catKey];
               const isSelected = activeCategory === catKey;
+              const borderPattern = catKey === 'medical' ? 'border-pattern-medical'
+                : catKey === 'crowd' ? 'border-pattern-crowd'
+                : catKey === 'lost' ? 'border-pattern-lost'
+                : catKey === 'water_food' ? 'border-pattern-water'
+                : 'border-solid';
+
               return (
                 <button
                   key={catKey}
                   type="button"
                   onClick={() => setActiveCategory(catKey)}
-                  className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between ${
+                  className={`p-3.5 rounded-2xl border min-h-[68px] touch-target-48 text-left transition-all flex flex-col justify-between ${
                     isSelected
-                      ? 'bg-red-600 text-white border-red-600 shadow-md scale-102 font-black'
+                      ? `bg-red-600 text-white ${borderPattern} shadow-lg scale-102 font-black ring-2 ring-white/40`
                       : `${config.bg} ${config.border} ${config.text} hover:scale-101 font-bold`
                   }`}
                 >
-                  <span className="text-2xl mb-1">{config.icon}</span>
-                  <span className="text-xs leading-snug">{lang === 'mr' ? config.labelMr : config.labelEn}</span>
+                  <div className="flex items-center justify-between w-full mb-1">
+                    <span className="text-2xl">{config.icon}</span>
+                    {isSelected && <span className="text-[10px] uppercase font-black px-1.5 py-0.5 rounded bg-white text-red-700">✓ Selected</span>}
+                  </div>
+                  <div>
+                    <p className="text-xs font-black leading-snug">{config.labelMr}</p>
+                    <p className="text-[11px] opacity-80 leading-tight font-medium">{config.labelEn}</p>
+                  </div>
                 </button>
               );
             })}
