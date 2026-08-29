@@ -59,8 +59,19 @@ function directionsUrl(lat?: number, lng?: number) {
   return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
 }
 
+export function safeRandomUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 type Registration = { name: string; phone: string; emergency: string; groupCode: string; photo?: File };
-const makeGroupCode = () => `WARI-${crypto.randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`;
+const makeGroupCode = () => `WARI-${safeRandomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`;
 
 function usePosition() {
   const [position, setPosition] = useState<GeolocationPosition>();
@@ -590,7 +601,7 @@ function App() {
         setNotice({ type: 'error', text: 'We could not find that group code. Check it or create a new group.' });
         return;
       }
-      groupId = crypto.randomUUID();
+      groupId = safeRandomUUID();
       const { error } = await supabase.from('groups').insert({ id: groupId, group_code: normalizedGroupCode });
       if (error) {
         setNotice({ type: 'error', text: error.message });

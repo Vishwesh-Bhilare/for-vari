@@ -210,9 +210,10 @@ export function AdminLogin({
       setMessage('Enter a valid node name, latitude, longitude, and sequence order.');
       return;
     }
+    const safeId = nodeForm.id || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
     const query = nodeForm.id
       ? supabase.from('nodes').update(payload).eq('id', nodeForm.id).select('*')
-      : supabase.from('nodes').insert({ id: crypto.randomUUID(), ...payload }).select('*');
+      : supabase.from('nodes').insert({ id: safeId, ...payload }).select('*');
     const { data, error } = await query;
     if (error) {
       setMessage(error.message);

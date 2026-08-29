@@ -85,8 +85,9 @@ export function VolunteerApplication({
     setSubmitting(true);
     setNeedsAuth(false);
 
+    const safeId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const appRecord: VolunteerApplicationRecord = {
-      id: crypto.randomUUID(),
+      id: safeId,
       user_id: userId,
       full_name: form.full_name.trim(),
       phone: form.phone.trim(),
