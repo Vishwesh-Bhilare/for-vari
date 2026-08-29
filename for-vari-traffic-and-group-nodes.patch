@@ -1,0 +1,352 @@
+diff -ruN a/src/db.ts b/src/db.ts
+--- a/src/db.ts	2026-08-29 07:51:30.890319333 +0000
++++ b/src/db.ts	2026-08-29 07:51:31.042463712 +0000
+@@ -5,10 +5,12 @@
+ const MAX_OUTBOX_ATTEMPTS = 5;
+ const retryDelay = (attempts: number) => Math.min(60_000, 2 ** Math.max(0, attempts - 1) * 2_000);
+ 
+-const dbPromise = openDB('vari-companion', 5, {
++const dbPromise = openDB('vari-companion', 6, {
+   upgrade(db) {
+     if (!db.objectStoreNames.contains('nodes')) db.createObjectStore('nodes', { keyPath: 'id' });
+     if (!db.objectStoreNames.contains('crowd_reports')) db.createObjectStore('crowd_reports', { keyPath: 'id', autoIncrement: true });
++    if (!db.objectStoreNames.contains('traffic_reports')) db.createObjectStore('traffic_reports', { keyPath: 'id', autoIncrement: true });
++    if (!db.objectStoreNames.contains('group_nodes')) db.createObjectStore('group_nodes', { keyPath: 'id', autoIncrement: true });
+     if (!db.objectStoreNames.contains('item_requests')) db.createObjectStore('item_requests', { keyPath: 'id', autoIncrement: true });
+     if (!db.objectStoreNames.contains('sightings')) db.createObjectStore('sightings', { keyPath: 'id', autoIncrement: true });
+     if (!db.objectStoreNames.contains('sos_alerts')) db.createObjectStore('sos_alerts', { keyPath: 'id', autoIncrement: true });
+diff -ruN a/src/main.tsx b/src/main.tsx
+--- a/src/main.tsx	2026-08-29 07:51:30.890406726 +0000
++++ b/src/main.tsx	2026-08-29 07:51:31.042507400 +0000
+@@ -6,7 +6,7 @@
+ import { cacheRows, drainOutbox, getRows, queueWrite } from './db';
+ import { isSupabaseConfigured, supabase } from './supabase';
+ import { signOut, useProfile, useSession, useVolunteerApplication } from './auth';
+-import type { CrowdReport, Density, Group, ItemRequest, LiveLocation, NodePoint, Profile, Sighting, SosAlert, VolunteerApplication as VolunteerAppRecord } from './types';
++import type { CrowdReport, Density, Group, GroupNode, ItemRequest, LiveLocation, NodePoint, Profile, Sighting, SosAlert, TrafficReport, TrafficStatus, VolunteerApplication as VolunteerAppRecord } from './types';
+ import { VolunteerApplication } from './components/VolunteerApplication';
+ import { AdminLogin } from './pages/AdminLogin';
+ import { AuthModal } from './components/AuthModal';
+@@ -23,6 +23,10 @@
+ ];
+ 
+ const densityClass: Record<Density, string> = { unknown: '#94a3b8', low: '#16a34a', medium: '#f59e0b', high: '#dc2626' };
++// Severity order lets us pick the worse status when coloring the route between two nodes.
++const trafficSeverity: Record<TrafficStatus, number> = { unknown: -1, clear: 0, moderate: 1, heavy: 2, jam: 3 };
++const trafficClass: Record<TrafficStatus, string> = { unknown: '#94a3b8', clear: '#16a34a', moderate: '#f59e0b', heavy: '#f97316', jam: '#dc2626' };
++const trafficLabel: Record<TrafficStatus, string> = { unknown: 'No data', clear: 'Moving freely', moderate: 'Slow moving', heavy: 'Heavy traffic', jam: 'Jammed' };
+ 
+ const REQUEST_EXPIRY_MS = 2 * 60 * 60 * 1000;
+ const COMMON_ITEM_CHIPS = ['Water', 'Torch/Flashlight', 'Phone charger', 'Medicine', 'Blanket'];
+@@ -154,6 +158,8 @@
+   const [showAuthModal, setShowAuthModal] = useState(false);
+   const [nodes, setNodes] = useState<NodePoint[]>(seedNodes);
+   const [reports, setReports] = useState<CrowdReport[]>([]);
++  const [trafficReports, setTrafficReports] = useState<TrafficReport[]>([]);
++  const [groupNodes, setGroupNodes] = useState<GroupNode[]>([]);
+   const [items, setItems] = useState<ItemRequest[]>([]);
+   const [sightings, setSightings] = useState<Sighting[]>([]);
+   const [sosAlerts, setSosAlerts] = useState<SosAlert[]>([]);
+@@ -172,17 +178,21 @@
+   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string }>();
+   const [activePanel, setActivePanel] = useState<'lending' | 'lost' | 'volunteer'>('lending');
+   const [showDensitySheet, setShowDensitySheet] = useState(false);
++  const [showTrafficSheet, setShowTrafficSheet] = useState(false);
++  const [showAddNodeSheet, setShowAddNodeSheet] = useState(false);
++  const [newNodeName, setNewNodeName] = useState('');
+   const [lostTab, setLostTab] = useState<'register' | 'find'>('register');
+ 
+   const { position, requestLocation, geoError, setManualLocation } = usePosition();
+   const mapRef = useRef<L.Map | null>(null);
+   const markerLayerRef = useRef<L.LayerGroup | null>(null);
+-  const routeRef = useRef<L.Polyline | null>(null);
++  const routeRef = useRef<L.LayerGroup | null>(null);
+ 
+   useEffect(() => {
+     void cacheRows('nodes', seedNodes);
+     void Promise.all([
+       getRows<CrowdReport>('crowd_reports').then(setReports), getRows<ItemRequest>('item_requests').then(setItems),
++      getRows<TrafficReport>('traffic_reports').then(setTrafficReports), getRows<GroupNode>('group_nodes').then(setGroupNodes),
+       getRows<Sighting>('sightings').then(setSightings), getRows<SosAlert>('sos_alerts').then(setSosAlerts),
+       getRows<NodePoint>('nodes').then((rows) => rows.length && setNodes(rows))
+     ]);
+@@ -278,9 +288,11 @@
+         void supabase.from('nodes').upsert(seedNodes).then(() => setNodes(seedNodes));
+       }
+     });
++    void supabase.from('traffic_reports').select('*').order('created_at', { ascending: false }).then(({ data }) => data && (void cacheRows('traffic_reports', data), setTrafficReports(data as TrafficReport[])));
+     void supabase.from('profiles').select('*', { count: 'exact', head: true }).then(({ count }) => setRegisteredProfileCount(count ?? 0));
+     const channel = supabase.channel(`vari-live-${Math.random().toString(36).slice(2)}`)
+       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crowd_reports' }, (p) => setReports((r) => [p.new as CrowdReport, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.node_id === p.new.node_id && i.density === p.new.density && i.reported_by === p.new.reported_by))]))
++      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'traffic_reports' }, (p) => setTrafficReports((r) => [p.new as TrafficReport, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.node_id === p.new.node_id && i.status === p.new.status && i.reported_by === p.new.reported_by))]))
+       .on('postgres_changes', { event: '*', schema: 'public', table: 'item_requests' }, (p) => { const row = p.new as ItemRequest; setItems((r) => [row, ...r.filter((i) => i.id !== row.id && !(i.pending && i.item_name === row.item_name && i.requester_id === row.requester_id))]); })
+       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sightings' }, (p) => setSightings((r) => [p.new as Sighting, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.member_id === p.new.member_id && i.node_id === p.new.node_id && i.note === p.new.note))]))
+       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sos_alerts' }, (p) => setSosAlerts((r) => [p.new as SosAlert, ...r.filter((i) => i.id !== p.new.id && !(i.pending && i.member_id === p.new.member_id && i.node_id === p.new.node_id && i.status === p.new.status))]))
+@@ -309,9 +321,11 @@
+     }
+     const latest = new Map<string, Density>();
+     reports.forEach((r) => !latest.has(r.node_id) && latest.set(r.node_id, r.density));
++    const latestTraffic = new Map<string, TrafficStatus>();
++    trafficReports.forEach((r) => !latestTraffic.has(r.node_id) && latestTraffic.set(r.node_id, r.status));
+     markerLayerRef.current?.clearLayers();
+     nodes.forEach((node) => L.circleMarker([node.lat, node.lng], { radius: 11, color: '#7c2d12', fillColor: densityClass[latest.get(node.id) ?? 'unknown'], fillOpacity: 0.9 })
+-      .bindPopup(`${node.name}: ${latest.get(node.id) ?? 'no data'} crowd`).addTo(markerLayerRef.current!));
++      .bindPopup(`${node.name}: ${latest.get(node.id) ?? 'no data'} crowd · traffic ${trafficLabel[latestTraffic.get(node.id) ?? 'unknown'].toLowerCase()}`).addTo(markerLayerRef.current!));
+     if (session) {
+       liveLocations.forEach((live) => {
+         const mine = live.user_id === currentMemberId;
+@@ -324,13 +338,39 @@
+           .bindPopup(mine ? 'Your live location' : role === 'admin' ? 'Pilgrim live location' : `${memberName}'s live location`)
+           .addTo(markerLayerRef.current!);
+       });
++      // Group-private nodes only ever render for a signed-in member of that
++      // group; RLS on group_nodes already guarantees the fetched list can't
++      // contain another group's points.
++      groupNodes.forEach((node) => L.marker([node.lat, node.lng], {
++        icon: L.divIcon({ className: '', html: '<div style="background:#7c3aed;color:#fff;border-radius:9999px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,.4)">📌</div>', iconSize: [26, 26], iconAnchor: [13, 13] })
++      })
++        .bindPopup(`<strong>${node.name}</strong><br/>Visible to your group only${node.created_by === currentMemberId ? '<br/><button id="remove-node-' + node.id + '" style="margin-top:6px;color:#dc2626;font-weight:700;font-size:12px">Remove</button>' : ''}`)
++        .on('popupopen', () => {
++          if (node.created_by !== currentMemberId) return;
++          document.getElementById(`remove-node-${node.id}`)?.addEventListener('click', () => void removeGroupNode(node), { once: true });
++        })
++        .addTo(markerLayerRef.current!));
+     }
+     routeRef.current?.remove();
+-    routeRef.current = L.polyline(nodes.map((n) => [n.lat, n.lng] as L.LatLngTuple), { color: '#ea580c', weight: 4 }).addTo(mapRef.current);
++    routeRef.current = L.layerGroup().addTo(mapRef.current);
++    for (let i = 0; i < nodes.length - 1; i++) {
++      const from = nodes[i];
++      const to = nodes[i + 1];
++      // Color each stretch of the route by the worse of its two endpoints'
++      // latest traffic report, so a jam anywhere along a segment stands out.
++      const fromStatus = latestTraffic.get(from.id) ?? 'unknown';
++      const toStatus = latestTraffic.get(to.id) ?? 'unknown';
++      const worse = trafficSeverity[fromStatus] >= trafficSeverity[toStatus] ? fromStatus : toStatus;
++      const color = worse === 'unknown' ? '#ea580c' : trafficClass[worse];
++      L.polyline([[from.lat, from.lng], [to.lat, to.lng]], { color, weight: 5 })
++        .bindPopup(`${from.name} → ${to.name}: ${trafficLabel[worse]}`)
++        .addTo(routeRef.current);
++    }
+     window.requestAnimationFrame(() => mapRef.current?.invalidateSize());
+-  }, [view, nodes, reports, liveLocations, session, currentMemberId, role, familyProfiles]);
++  }, [view, nodes, reports, trafficReports, groupNodes, liveLocations, session, currentMemberId, role, familyProfiles]);
+ 
+   const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
++  const latestTrafficReports = useMemo(() => nodes.map((node) => ({ node, status: trafficReports.find((r) => r.node_id === node.id)?.status ?? 'unknown' as TrafficStatus })), [nodes, trafficReports]);
+   const nearestNodeId = useMemo(() => nodes.map((node) => ({ node, distance: getDistanceMeters(position?.coords, node.lat, node.lng) })).sort((a, b) => (a.distance ?? Number.POSITIVE_INFINITY) - (b.distance ?? Number.POSITIVE_INFINITY))[0]?.node.id ?? nodes[0]?.id ?? '', [nodes, position?.coords]);
+   useEffect(() => { if (nearestNodeId && !selectedNode) setSelectedNode(nearestNodeId); }, [nearestNodeId, selectedNode]);
+   useEffect(() => { if (nearestNodeId && !checkInNode) setCheckInNode(nearestNodeId); }, [nearestNodeId, checkInNode]);
+@@ -359,6 +399,25 @@
+     return () => { active = false; };
+   }, [profile?.group_id]);
+ 
++  // Group-private nodes ("our tent", family meeting point, etc). RLS already
++  // scopes reads to the caller's own group, but we also gate the query itself
++  // so a signed-out or group-less pilgrim never issues it.
++  useEffect(() => {
++    if (!profile?.group_id || !isSupabaseConfigured) { setGroupNodes([]); return; }
++    let active = true;
++    const loadGroupNodes = async () => {
++      const { data, error } = await supabase.from('group_nodes').select('*').eq('group_id', profile.group_id).order('created_at', { ascending: false });
++      if (!active || error) return;
++      void cacheRows('group_nodes', data ?? []);
++      setGroupNodes((data ?? []) as GroupNode[]);
++    };
++    void loadGroupNodes();
++    const channel = supabase.channel(`group-nodes-${profile.group_id}`)
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'group_nodes', filter: `group_id=eq.${profile.group_id}` }, loadGroupNodes)
++      .subscribe();
++    return () => { active = false; void supabase.removeChannel(channel); };
++  }, [profile?.group_id]);
++
+   async function reportDensity(density: Density) {
+     if (!session) {
+       setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+@@ -372,6 +431,52 @@
+     setReports((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
+     setNotice({ type: 'success', text: 'Crowd density report saved.' });
+   }
++  async function reportTraffic(status: TrafficStatus) {
++    if (!session) {
++      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
++      return;
++    }
++    if (status === 'unknown' || !currentMemberId || !selectedNode) {
++      setNotice({ type: 'error', text: 'Choose a route node before reporting traffic.' });
++      return;
++    }
++    const result = await queueWrite<TrafficReport>('traffic_reports', { node_id: selectedNode, status, reported_by: currentMemberId });
++    setTrafficReports((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
++    setNotice({ type: 'success', text: 'Traffic status saved.' });
++  }
++  async function addGroupNode() {
++    if (!session) {
++      setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
++      return;
++    }
++    if (!profile?.group_id) {
++      setNotice({ type: 'error', text: 'Join or create a group before adding a group node.' });
++      return;
++    }
++    if (!newNodeName.trim() || !position || !currentMemberId) {
++      setNotice({ type: 'error', text: 'Enter a name and share your location before adding a node.' });
++      return;
++    }
++    const result = await queueWrite<GroupNode>('group_nodes', {
++      group_id: profile.group_id,
++      name: newNodeName.trim(),
++      lat: position.coords.latitude,
++      lng: position.coords.longitude,
++      created_by: currentMemberId
++    });
++    setGroupNodes((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
++    setNewNodeName('');
++    setNotice({ type: 'success', text: 'Node added — only your group can see it.' });
++  }
++  async function removeGroupNode(node: GroupNode) {
++    if (!node.id || !isSupabaseConfigured) return;
++    const { error } = await supabase.from('group_nodes').delete().eq('id', node.id);
++    if (error) {
++      setNotice({ type: 'error', text: error.message });
++      return;
++    }
++    setGroupNodes((r) => r.filter((n) => n.id !== node.id));
++  }
+   async function requestItem() {
+     if (!session) {
+       setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
+@@ -521,11 +626,13 @@
+       {view === 'admin' ? <div className="min-h-screen bg-saffron-50 px-4 py-3 pb-20 lg:px-8 lg:pb-4"><h2 className="mb-3 text-xl font-extrabold text-stone-900">Admin dashboard</h2>{role === 'admin' && <><p className="mb-3 text-sm text-stone-600">Live locations for all pilgrims who have granted device permission.</p><div id="map" className="mb-4 h-[320px] w-full overflow-hidden rounded-2xl bg-cream-100" /></>}<AdminLogin userId={currentMemberId} userEmail={session?.user?.email} role={role} activeSosCount={activeSosCount} registeredProfileCount={registeredProfileCount} routeStationCount={nodes.length} nodes={nodes} onNodesChange={setNodes} /></div> : view === 'news' ? <div className="min-h-screen bg-saffron-50 p-4 pb-20 max-w-7xl mx-auto lg:p-6"><LiveNews /></div> : view === 'sos_mesh' ? <div className="min-h-screen bg-stone-950 pb-20 lg:pb-4"><VarkariSosMesh currentMemberId={currentMemberId} profile={profile} position={position} nodes={nodes} nearestNodeId={nearestNodeId} onSosCreated={(newAlert) => setSosAlerts((prev) => [newAlert, ...prev])} onRequestLocationPermission={requestLocation} geoError={geoError} onSetManualLocation={setManualLocation} /></div> : <div className="pb-20 lg:pb-4">
+         {activeSosCount > 0 && <div className="sticky top-0 z-40 flex items-center justify-between bg-red-600 px-4 py-3 text-white"><span className="flex items-center text-sm font-bold"><span className="mr-2 h-2.5 w-2.5 animate-pulse rounded-full bg-white" />{activeSosCount} active alert{activeSosCount === 1 ? '' : 's'}</span><button onClick={() => changeView('sos_mesh')} className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-bold">View →</button></div>}
+         {session && !position && <div className="mx-4 mt-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><span>Share your device location to show your live dot to your group.</span><button onClick={requestLocation} className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white">Allow location</button></div>}
+-        {!session && <section className="mx-4 mt-4 rounded-2xl bg-stone-950 p-5 text-white lg:mx-4"><h2 className="text-xl font-extrabold">Plan a safer Wari journey</h2><p className="mt-1 text-sm text-stone-300">View the route and crowd density, apply to volunteer, or sign in to coordinate with your pilgrim group.</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={() => setShowAuthModal(true)} className="rounded-xl bg-saffron-600 px-4 py-2 text-sm font-bold">Pilgrim sign in / sign up</button><button onClick={() => changeView('news')} className="rounded-xl bg-stone-800 border border-stone-700 px-4 py-2 text-sm font-bold text-white">📰 Live Wari News</button><button onClick={() => setShowApplyModal(true)} className="rounded-xl border border-stone-600 px-4 py-2 text-sm font-bold">Volunteer application</button></div></section>}<div className="lg:grid lg:grid-cols-[2fr_1fr] lg:gap-4 lg:p-4"><div className="space-y-3"><div className="relative mx-4 h-[240px] overflow-hidden rounded-2xl lg:mx-0 lg:h-[400px]"><div id="map" className="h-full w-full bg-cream-100" /><button onClick={() => session ? setShowDensitySheet(true) : setShowAuthModal(true)} className="absolute bottom-3 right-3 min-h-[44px] rounded-xl bg-saffron-600 px-3 py-2 text-xs font-bold text-white shadow-sm">{session ? 'Report density' : 'Sign in to report'}</button></div><div className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide lg:hidden">{latestReports.map(({node,density}) => <div key={node.id} className={`w-[140px] flex-shrink-0 rounded-2xl border border-cream-200 border-l-4 bg-white p-3 shadow-sm ${density === 'high' ? 'border-l-red-600' : density === 'medium' ? 'border-l-amber-500' : 'border-l-green-600'}`}><p className="truncate text-sm font-extrabold text-stone-900">{node.name}</p><span className={`mt-2 inline-block rounded-full px-2.5 py-1 text-xs font-bold ${density === 'high' ? 'bg-red-50 text-red-700' : density === 'medium' ? 'bg-amber-50 text-amber-700' : density === 'low' ? 'bg-green-50 text-green-600' : 'bg-cream-100 text-stone-500'}`}>{density === 'unknown' ? 'No data' : density}</span></div>)}</div><div className="mx-4 lg:mx-0"><button onClick={() => changeView('news')} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-saffron-300 bg-saffron-100/90 px-4 py-3 text-left shadow-2xs hover:bg-saffron-200/80 transition-all"><span className="flex items-center gap-2.5 font-extrabold text-stone-900 text-sm"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-saffron-600 text-white text-xs">📰</span><span>Live Wari News & Traffic Updates</span></span><span className="rounded-xl bg-saffron-600 px-3 py-1.5 text-xs font-bold text-white">View News Tab →</span></button></div><section className="mx-4 overflow-hidden rounded-2xl border border-cream-200 bg-white lg:mx-0 lg:grid lg:grid-cols-3 lg:gap-4 lg:border-0 lg:bg-transparent">
++        {!session && <section className="mx-4 mt-4 rounded-2xl bg-stone-950 p-5 text-white lg:mx-4"><h2 className="text-xl font-extrabold">Plan a safer Wari journey</h2><p className="mt-1 text-sm text-stone-300">View the route and crowd density, apply to volunteer, or sign in to coordinate with your pilgrim group.</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={() => setShowAuthModal(true)} className="rounded-xl bg-saffron-600 px-4 py-2 text-sm font-bold">Pilgrim sign in / sign up</button><button onClick={() => changeView('news')} className="rounded-xl bg-stone-800 border border-stone-700 px-4 py-2 text-sm font-bold text-white">📰 Live Wari News</button><button onClick={() => setShowApplyModal(true)} className="rounded-xl border border-stone-600 px-4 py-2 text-sm font-bold">Volunteer application</button></div></section>}<div className="lg:grid lg:grid-cols-[2fr_1fr] lg:gap-4 lg:p-4"><div className="space-y-3"><div className="relative mx-4 h-[240px] overflow-hidden rounded-2xl lg:mx-0 lg:h-[400px]"><div id="map" className="h-full w-full bg-cream-100" /><div className="absolute bottom-3 right-3 flex flex-col items-end gap-2"><button onClick={() => session ? setShowTrafficSheet(true) : setShowAuthModal(true)} className="min-h-[44px] rounded-xl bg-stone-900 px-3 py-2 text-xs font-bold text-white shadow-sm">{session ? '🚦 Report traffic' : 'Sign in to report'}</button><button onClick={() => session ? setShowDensitySheet(true) : setShowAuthModal(true)} className="min-h-[44px] rounded-xl bg-saffron-600 px-3 py-2 text-xs font-bold text-white shadow-sm">{session ? 'Report density' : 'Sign in to report'}</button>{session && profile?.group_id && <button onClick={() => setShowAddNodeSheet(true)} className="min-h-[44px] rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white shadow-sm">📌 Add group node</button>}</div></div><div className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide lg:hidden">{latestReports.map(({node,density}) => <div key={node.id} className={`w-[140px] flex-shrink-0 rounded-2xl border border-cream-200 border-l-4 bg-white p-3 shadow-sm ${density === 'high' ? 'border-l-red-600' : density === 'medium' ? 'border-l-amber-500' : 'border-l-green-600'}`}><p className="truncate text-sm font-extrabold text-stone-900">{node.name}</p><span className={`mt-2 inline-block rounded-full px-2.5 py-1 text-xs font-bold ${density === 'high' ? 'bg-red-50 text-red-700' : density === 'medium' ? 'bg-amber-50 text-amber-700' : density === 'low' ? 'bg-green-50 text-green-600' : 'bg-cream-100 text-stone-500'}`}>{density === 'unknown' ? 'No data' : density}</span></div>)}</div><div className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide lg:hidden">{latestTrafficReports.map(({node,status}) => <div key={node.id} className="w-[140px] flex-shrink-0 rounded-2xl border border-cream-200 border-l-4 bg-white p-3 shadow-sm" style={{ borderLeftColor: trafficClass[status] }}><p className="truncate text-sm font-extrabold text-stone-900">{node.name}</p><span className="mt-2 inline-block rounded-full px-2.5 py-1 text-xs font-bold" style={{ backgroundColor: `${trafficClass[status]}1a`, color: trafficClass[status] }}>{trafficLabel[status]}</span></div>)}</div><div className="mx-4 lg:mx-0"><button onClick={() => changeView('news')} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-saffron-300 bg-saffron-100/90 px-4 py-3 text-left shadow-2xs hover:bg-saffron-200/80 transition-all"><span className="flex items-center gap-2.5 font-extrabold text-stone-900 text-sm"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-saffron-600 text-white text-xs">📰</span><span>Live Wari News & Traffic Updates</span></span><span className="rounded-xl bg-saffron-600 px-3 py-1.5 text-xs font-bold text-white">View News Tab →</span></button></div><section className="mx-4 overflow-hidden rounded-2xl border border-cream-200 bg-white lg:mx-0 lg:grid lg:grid-cols-3 lg:gap-4 lg:border-0 lg:bg-transparent">
+           {([['lending','🤝','Peer lending'],['lost','🔎','Lost & found'],['volunteer','🙋','Volunteer application']] as const).map(([key,icon,title]) => <div key={key} className="border-b border-cream-200 last:border-0 lg:rounded-2xl lg:border lg:border-cream-200 lg:bg-white lg:p-4 lg:shadow-sm"><button onClick={() => setActivePanel(key)} className="flex min-h-[48px] w-full items-center justify-between px-4 py-3 lg:pointer-events-none lg:px-0 lg:py-0"><span className="flex items-center gap-2 text-sm font-extrabold text-stone-900"><span>{icon}</span>{title}</span><span className={`text-stone-400 transition-transform duration-200 lg:hidden ${activePanel === key ? 'rotate-180' : ''}`}>⌄</span></button><div className={`overflow-hidden transition-all duration-200 ease-out ${activePanel === key ? 'max-h-[700px]' : 'max-h-0'} lg:max-h-[900px]`}><div className="px-4 pb-4 pt-2 lg:px-0">{key === 'lending' ? <><div className="mb-3 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">{['Water','Food','Torch','Medicine','Blanket','First Aid'].map(chip => <button key={chip} onClick={() => setItemName(chip)} className={`flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${itemName === chip ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>{chip}</button>)}</div><label className="mb-1.5 block text-xs font-semibold text-stone-600">What do you need?</label><input className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none" value={itemName} onChange={e => setItemName(e.target.value)} placeholder="e.g. water bottle, torch..."/><button disabled={Boolean(myActiveRequest)} onClick={() => void requestItem()} className="mt-3 w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-60">Request item</button><div className="mt-3 space-y-2">{sortedPrimaryItems.slice(0,3).map(({item:i},idx) => <div key={i.id ?? idx} className="flex items-center justify-between rounded-xl bg-saffron-50 px-3 py-2"><span className="text-xs font-semibold text-stone-800">{i.item_name}</span><div className="flex items-center gap-2">{i.status !== 'accepted' && i.requester_id !== currentMemberId && <button onClick={() => void acceptItem(i)} className="rounded-lg border border-saffron-600 px-2.5 py-1 text-xs font-bold text-saffron-600">Offer</button>}{i.status === 'accepted' && i.accepted_by === currentMemberId && <><button onClick={() => void completeItem(i)} className="rounded-lg border border-saffron-600 px-2.5 py-1 text-xs font-bold text-saffron-600">Mark complete</button><button onClick={() => void unacceptItem(i)} className="text-xs font-bold text-stone-500">Cancel</button></>}{i.status === 'accepted' && i.requester_id === currentMemberId && <span className="text-xs font-semibold text-stone-500">Accepted — help is on the way</span>}{i.status === 'accepted' && i.accepted_by !== currentMemberId && i.requester_id !== currentMemberId && <span className="text-xs font-semibold text-stone-500">Already being helped</span>}{i.requester_id === currentMemberId && i.status === 'open' && <button onClick={() => void cancelItem(i)} className="text-xs font-bold text-stone-500">Cancel request</button>}</div></div>)}</div></> : key === 'lost' ? <GroupPanel session={session} profile={profile} groupAction={groupAction} setGroupAction={setGroupAction} registration={registration} setRegistration={setRegistration} registeredGroup={registeredGroup} familyProfiles={familyProfiles} liveLocations={liveLocations} locationError={locationError} onSubmit={() => void registerGroup()} /> : <><button onClick={() => setShowApplyModal(true)} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">Apply for Seva ⚡</button>{session ? <VolunteerDashboard session={session} profile={profile} role={role} approved={approved} loading={authLoading || profileLoading} nodes={nodes} sosAlerts={sosAlerts} sightings={sightings} setSosAlerts={setSosAlerts} setSightings={setSightings}/> : <p className="mt-3 text-sm text-stone-500">Sign in to access volunteer features.</p>}</>}</div></div></div>)}
+-        </section></div><aside className="hidden space-y-3 lg:block"><h2 className="text-base font-extrabold text-stone-900">Crowd density</h2>{latestReports.map(({node,density})=><div key={node.id} className="flex items-center gap-3 rounded-2xl border border-cream-200 bg-white p-3"><span className={`h-3 w-3 rounded-full ${density === 'high' ? 'bg-red-600' : density === 'medium' ? 'bg-amber-500' : 'bg-green-600'}`}/><span className="flex-1 text-sm font-semibold">{node.name}</span><span className="rounded-full bg-cream-100 px-2 py-1 text-xs font-bold capitalize">{density}</span></div>)}<button onClick={() => setShowDensitySheet(true)} className="w-full min-h-[48px] rounded-xl border-2 border-saffron-600 py-3 text-sm font-bold text-saffron-600">Report density</button></aside></div>
++        </section></div><aside className="hidden space-y-4 lg:block"><div><h2 className="text-base font-extrabold text-stone-900">Crowd density</h2><div className="mt-2 space-y-2">{latestReports.map(({node,density})=><div key={node.id} className="flex items-center gap-3 rounded-2xl border border-cream-200 bg-white p-3"><span className={`h-3 w-3 rounded-full ${density === 'high' ? 'bg-red-600' : density === 'medium' ? 'bg-amber-500' : 'bg-green-600'}`}/><span className="flex-1 text-sm font-semibold">{node.name}</span><span className="rounded-full bg-cream-100 px-2 py-1 text-xs font-bold capitalize">{density}</span></div>)}</div><button onClick={() => setShowDensitySheet(true)} className="mt-2 w-full min-h-[48px] rounded-xl border-2 border-saffron-600 py-3 text-sm font-bold text-saffron-600">Report density</button></div><div><h2 className="text-base font-extrabold text-stone-900">Traffic status</h2><div className="mt-2 space-y-2">{latestTrafficReports.map(({node,status})=><div key={node.id} className="flex items-center gap-3 rounded-2xl border border-cream-200 bg-white p-3"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: trafficClass[status] }}/><span className="flex-1 text-sm font-semibold">{node.name}</span><span className="rounded-full bg-cream-100 px-2 py-1 text-xs font-bold">{trafficLabel[status]}</span></div>)}</div><button onClick={() => setShowTrafficSheet(true)} className="mt-2 w-full min-h-[48px] rounded-xl border-2 border-stone-900 py-3 text-sm font-bold text-stone-900">Report traffic</button></div>{profile?.group_id && <div><h2 className="text-base font-extrabold text-stone-900">Your group's nodes</h2><p className="mt-1 text-xs text-stone-500">Only visible to members of your group.</p><div className="mt-2 space-y-2">{groupNodes.length === 0 && <p className="text-xs text-stone-400">No group nodes yet.</p>}{groupNodes.map((node)=><div key={node.id} className="flex items-center gap-3 rounded-2xl border border-violet-200 bg-violet-50 p-3"><span className="text-sm">📌</span><span className="flex-1 text-sm font-semibold text-stone-800">{node.name}</span>{node.created_by === currentMemberId && <button onClick={() => void removeGroupNode(node)} className="text-xs font-bold text-red-600">Remove</button>}</div>)}</div><button onClick={() => setShowAddNodeSheet(true)} className="mt-2 w-full min-h-[48px] rounded-xl border-2 border-violet-600 py-3 text-sm font-bold text-violet-600">📌 Add group node</button></div>}</aside></div>
+         {showApplyModal && <div className="fixed inset-0 z-[2000] flex items-end justify-center bg-stone-900/60 backdrop-blur-sm sm:items-center"><div className="relative w-full rounded-t-3xl bg-white px-5 pt-2 pb-8 shadow-2xl sm:max-w-lg sm:rounded-3xl sm:p-7"><div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-stone-200 sm:hidden"/><button onClick={() => setShowApplyModal(false)} className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-stone-400">✕</button><h3 className="mb-5 text-xl font-extrabold">Volunteer application</h3><VolunteerApplication userId={currentMemberId} application={application} nodes={nodes} onRequireAuth={() => setShowAuthModal(true)}/></div></div>}
+         {showDensitySheet && <><div className="fixed inset-0 z-40 bg-stone-900/40" onClick={() => setShowDensitySheet(false)}/><div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl transition-transform duration-300 ease-out"><div className="mx-auto mb-4 h-1 w-12 rounded-full bg-stone-200"/><h2 className="text-base font-extrabold">Report crowd density</h2><select className="mt-4 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" value={selectedNode} onChange={e=>setSelectedNode(e.target.value)}>{nodes.map(n=><option key={n.id} value={n.id}>{n.name}</option>)}</select><div className="mt-3 flex gap-2">{(['low','medium','high'] as Density[]).map(d=><button key={d} onClick={() => { void reportDensity(d); setShowDensitySheet(false); }} className={`flex min-h-[80px] flex-1 flex-col items-center justify-center rounded-xl border-2 text-sm font-bold capitalize ${d === 'low' ? 'border-green-500 bg-green-50 text-green-700' : d === 'medium' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-red-500 bg-red-50 text-red-700'}`}>{d === 'low' ? '🟢' : d === 'medium' ? '🟡' : '🔴'}<span>{d}</span></button>)}</div></div></>}
++        {showTrafficSheet && <><div className="fixed inset-0 z-40 bg-stone-900/40" onClick={() => setShowTrafficSheet(false)}/><div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl transition-transform duration-300 ease-out"><div className="mx-auto mb-4 h-1 w-12 rounded-full bg-stone-200"/><h2 className="text-base font-extrabold">Report traffic status</h2><p className="mt-1 text-xs text-stone-500">Reports color the route on the map near this node.</p><select className="mt-4 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" value={selectedNode} onChange={e=>setSelectedNode(e.target.value)}>{nodes.map(n=><option key={n.id} value={n.id}>{n.name}</option>)}</select><div className="mt-3 grid grid-cols-2 gap-2">{(['clear','moderate','heavy','jam'] as TrafficStatus[]).map(s=><button key={s} onClick={() => { void reportTraffic(s); setShowTrafficSheet(false); }} className="flex min-h-[64px] flex-col items-center justify-center rounded-xl border-2 text-sm font-bold" style={{ borderColor: trafficClass[s], backgroundColor: `${trafficClass[s]}14`, color: trafficClass[s] }}>{trafficLabel[s]}</button>)}</div></div></>}
++        {showAddNodeSheet && <><div className="fixed inset-0 z-40 bg-stone-900/40" onClick={() => setShowAddNodeSheet(false)}/><div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl transition-transform duration-300 ease-out"><div className="mx-auto mb-4 h-1 w-12 rounded-full bg-stone-200"/><h2 className="text-base font-extrabold">Add a node for your group</h2><p className="mt-1 text-xs text-stone-500">Only pilgrims in your group ({registeredGroup || 'no group yet'}) will see this on the map.</p>{!position && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-700">Share your device location first — the node is placed at your current position.</p>}<input className="mt-4 w-full min-h-[44px] rounded-xl border border-cream-200 bg-violet-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-violet-600 focus:ring-2 focus:ring-violet-600/20 focus:outline-none" value={newNodeName} onChange={e=>setNewNodeName(e.target.value)} placeholder="e.g. our tent, meeting point..."/><button disabled={!position || !newNodeName.trim()} onClick={() => { void addGroupNode(); setShowAddNodeSheet(false); }} className="mt-3 w-full min-h-[48px] rounded-xl bg-violet-600 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50">Add node at my location</button></div></>}
+       </div>}
+       <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-16 border-t border-cream-200 bg-white pb-safe lg:hidden">{([['pilgrim','🗺️','Pilgrim'],['news','📰','News'],['sos_mesh','🚨','SOS'],['pilgrim','🙋','Volunteer'],['admin','⚡','Admin']] as const).map(([target,icon,label]) => { const isActive = label === 'Volunteer' ? showApplyModal : view === target; return <button key={label} onClick={() => label === 'Volunteer' ? setShowApplyModal(true) : changeView(target)} className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-semibold ${label === 'SOS' ? 'text-red-600' : isActive ? 'border-t-2 border-saffron-600 text-saffron-600' : 'text-stone-400'}`}><span className="text-xl">{icon}</span>{label === 'SOS' && activeSosCount > 0 && <span className="absolute top-2 ml-5 h-2 w-2 animate-pulse rounded-full bg-red-500"/>}<span>{label}</span></button>; })}</nav>
+       {activeSosCount === 0 && view === 'pilgrim' && <button onClick={sendSos} className="fixed bottom-[72px] left-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-xl text-white shadow-lg">🚨</button>}
+diff -ruN a/src/types.ts b/src/types.ts
+--- a/src/types.ts	2026-08-29 07:51:30.891216262 +0000
++++ b/src/types.ts	2026-08-29 07:51:31.044125965 +0000
+@@ -1,4 +1,5 @@
+ export type Density = 'unknown' | 'low' | 'medium' | 'high';
++export type TrafficStatus = 'unknown' | 'clear' | 'moderate' | 'heavy' | 'jam';
+ export type QueuePriority = 'sos' | 'normal';
+ export type UserRole = 'pilgrim' | 'volunteer' | 'admin';
+ 
+@@ -67,6 +68,30 @@
+   pending?: boolean;
+ }
+ 
++export interface TrafficReport {
++  id?: string | number;
++  node_id: string;
++  status: TrafficStatus;
++  note?: string;
++  reported_by?: string;
++  created_at?: string;
++  pending?: boolean;
++}
++
++// A route node added by a pilgrim group for their own use (e.g. "our tent",
++// "family meeting point"). Only visible to members of the same group.
++export interface GroupNode {
++  id?: string;
++  group_id: string;
++  name: string;
++  lat: number;
++  lng: number;
++  note?: string;
++  created_by?: string;
++  created_at?: string;
++  pending?: boolean;
++}
++
+ export interface ItemRequest {
+   id?: string | number;
+   requester_id?: string;
+@@ -208,5 +233,5 @@
+   description?: string;
+ }
+ 
+-export type StoredRecord = CrowdReport | ItemRequest | Sighting | SosAlert;
++export type StoredRecord = CrowdReport | TrafficReport | ItemRequest | Sighting | SosAlert | GroupNode;
+ 
+diff -ruN a/supabase/schema4.sql b/supabase/schema4.sql
+--- a/supabase/schema4.sql	1970-01-01 00:00:00.000000000 +0000
++++ b/supabase/schema4.sql	2026-08-29 07:51:31.046084110 +0000
+@@ -0,0 +1,67 @@
++-- Live traffic status along the route, and group-private route nodes.
++-- Run after schema.sql / schema2.sql / schema3.sql.
++
++-- Traffic status reports, one per node, same shape/lifecycle as crowd_reports.
++create table if not exists traffic_reports (
++  id uuid primary key default gen_random_uuid(),
++  node_id uuid references nodes(id),
++  status text not null check (status in ('clear','moderate','heavy','jam')),
++  note text,
++  reported_by uuid references profiles(id),
++  created_at timestamptz default now()
++);
++alter table traffic_reports enable row level security;
++drop policy if exists "anyone can read traffic_reports" on traffic_reports;
++drop policy if exists "authenticated users can insert traffic_reports" on traffic_reports;
++create policy "anyone can read traffic_reports" on traffic_reports for select using (true);
++create policy "authenticated users can insert traffic_reports" on traffic_reports for insert with check (auth.uid() is not null and reported_by = auth.uid());
++
++do $$
++begin
++  alter publication supabase_realtime add table traffic_reports;
++exception
++  when duplicate_object then null;
++end $$;
++
++-- Nodes a group adds for themselves (meeting point, their tent, etc). Only
++-- visible to members of that group (and admins); never shown on the public map.
++create table if not exists group_nodes (
++  id uuid primary key default gen_random_uuid(),
++  group_id uuid not null references groups(id) on delete cascade,
++  name text not null,
++  lat float8 not null,
++  lng float8 not null,
++  note text,
++  created_by uuid references profiles(id),
++  created_at timestamptz default now()
++);
++alter table group_nodes enable row level security;
++
++drop policy if exists "group members read own group nodes" on group_nodes;
++drop policy if exists "group members insert own group nodes" on group_nodes;
++drop policy if exists "creator or admin deletes group node" on group_nodes;
++drop policy if exists "creator or admin updates group node" on group_nodes;
++
++create policy "group members read own group nodes" on group_nodes for select using (
++  public.is_admin() or public.is_in_my_group(group_id)
++);
++create policy "group members insert own group nodes" on group_nodes for insert with check (
++  auth.uid() is not null and created_by = auth.uid() and public.is_in_my_group(group_id)
++);
++create policy "creator or admin deletes group node" on group_nodes for delete using (
++  created_by = auth.uid() or public.is_admin()
++);
++create policy "creator or admin updates group node" on group_nodes for update using (
++  created_by = auth.uid() or public.is_admin()
++) with check (
++  created_by = auth.uid() or public.is_admin()
++);
++
++do $$
++begin
++  alter publication supabase_realtime add table group_nodes;
++exception
++  when duplicate_object then null;
++end $$;
++
++notify pgrst, 'reload schema';

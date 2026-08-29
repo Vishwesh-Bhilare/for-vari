@@ -71,17 +71,13 @@ export function AdminLogin({
     setMessage('Emergency contact removed.');
   };
 
-  const isAdmin = role === 'admin' || Boolean(userId && userEmail && (userEmail.toLowerCase() === adminEmail.toLowerCase() || userEmail.toLowerCase().includes('admin')));
+  const isAdmin = role === 'admin';
   const configError = getSupabaseConfigError();
 
   useEffect(() => {
     if (!isAdmin) return;
 
     async function loadPending() {
-      if (userId && isAdmin && isSupabaseConfigured) {
-        await supabase.from('profiles').update({ role: 'admin', approved: true }).eq('id', userId);
-      }
-
       let remoteApps: VolunteerApplication[] = [];
       if (isSupabaseConfigured) {
         const { data, error } = await supabase
@@ -141,12 +137,7 @@ export function AdminLogin({
     setLoggingIn(true);
     try {
       const res = await signIn(adminEmail.trim(), adminPassword);
-      if (res?.user) {
-        await supabase
-          .from('profiles')
-          .update({ role: 'admin', approved: true })
-          .eq('id', res.user.id);
-      }
+      if (!res?.user) throw new Error('Unable to sign in.');
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : 'Admin login failed.');
     } finally {
@@ -219,9 +210,10 @@ export function AdminLogin({
       setMessage('Enter a valid node name, latitude, longitude, and sequence order.');
       return;
     }
+    const safeId = nodeForm.id || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
     const query = nodeForm.id
       ? supabase.from('nodes').update(payload).eq('id', nodeForm.id).select('*')
-      : supabase.from('nodes').insert({ id: crypto.randomUUID(), ...payload }).select('*');
+      : supabase.from('nodes').insert({ id: safeId, ...payload }).select('*');
     const { data, error } = await query;
     if (error) {
       setMessage(error.message);

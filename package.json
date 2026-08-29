@@ -1,6 +1,7 @@
 {
   "scripts": {
     "dev": "vite --host",
+    "scraper": "python3 scraper/news_server.py",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
@@ -9,7 +10,9 @@
     "@vitejs/plugin-react": "latest",
     "i": "^0.3.7",
     "idb": "latest",
+    "jsqr": "^1.4.0",
     "leaflet": "latest",
+    "qrcode": "^1.5.4",
     "react": "latest",
     "react-dom": "latest",
     "vite-plugin-pwa": "latest",

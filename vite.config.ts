@@ -2,11 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
-import basicSsl from '@vitejs/plugin-basic-ssl';
-
 export default defineConfig({
   plugins: [
-    basicSsl(),
     react(),
     tailwindcss(),
     VitePWA({
@@ -29,5 +26,15 @@ export default defineConfig({
         ]
       }
     })
-  ]
+  ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5005',
+        changeOrigin: true,
+        secure: false
+      }
+    }
+  }
 });
+

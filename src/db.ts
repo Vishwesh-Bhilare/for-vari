@@ -5,10 +5,12 @@ import type { EmergencyContact, MeshChatMessage, MeshGoodsService, MeshNewsBroad
 const MAX_OUTBOX_ATTEMPTS = 5;
 const retryDelay = (attempts: number) => Math.min(60_000, 2 ** Math.max(0, attempts - 1) * 2_000);
 
-const dbPromise = openDB('vari-companion', 5, {
+const dbPromise = openDB('vari-companion', 6, {
   upgrade(db) {
     if (!db.objectStoreNames.contains('nodes')) db.createObjectStore('nodes', { keyPath: 'id' });
     if (!db.objectStoreNames.contains('crowd_reports')) db.createObjectStore('crowd_reports', { keyPath: 'id', autoIncrement: true });
+    if (!db.objectStoreNames.contains('traffic_reports')) db.createObjectStore('traffic_reports', { keyPath: 'id', autoIncrement: true });
+    if (!db.objectStoreNames.contains('group_nodes')) db.createObjectStore('group_nodes', { keyPath: 'id', autoIncrement: true });
     if (!db.objectStoreNames.contains('item_requests')) db.createObjectStore('item_requests', { keyPath: 'id', autoIncrement: true });
     if (!db.objectStoreNames.contains('sightings')) db.createObjectStore('sightings', { keyPath: 'id', autoIncrement: true });
     if (!db.objectStoreNames.contains('sos_alerts')) db.createObjectStore('sos_alerts', { keyPath: 'id', autoIncrement: true });
