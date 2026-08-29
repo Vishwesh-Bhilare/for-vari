@@ -33,26 +33,15 @@ const trafficLabel: Record<TrafficStatus, string> = { unknown: 'No data', clear:
 const REQUEST_EXPIRY_MS = 2 * 60 * 60 * 1000;
 const COMMON_ITEM_CHIPS = ['Water', 'Torch/Flashlight', 'Phone charger', 'Medicine', 'Blanket'];
 
-const sampleP2pItems: ItemRequest[] = [
-  {
-    id: 'sample-p2p-1',
-    requester_id: 'pilgrim-dehu-01',
-    item_name: 'Water Bottle & Electrolytes',
-    lat: 18.7187,
-    lng: 73.7661,
-    status: 'open',
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'sample-p2p-2',
-    requester_id: 'pilgrim-saswad-02',
-    item_name: 'First Aid Kit & Bandages',
-    lat: 18.3435,
-    lng: 74.0315,
-    status: 'open',
-    created_at: new Date().toISOString()
+const p2pBroadcastChannel = typeof window !== 'undefined' && 'BroadcastChannel' in window ? new BroadcastChannel('vari_p2p_channel') : null;
+
+function broadcastP2pUpdate(action: 'UPSERT' | 'DELETE', item: ItemRequest) {
+  try {
+    p2pBroadcastChannel?.postMessage({ action, item });
+  } catch (err) {
+    console.warn('BroadcastChannel error:', err);
   }
-];
+}
 
 function getDistanceMeters(from: GeolocationPosition['coords'] | undefined, lat?: number, lng?: number) {
   if (!from || lat === undefined || lng === undefined) return undefined;
@@ -272,10 +261,28 @@ function App() {
 
 
   useEffect(() => {
+    if (!p2pBroadcastChannel) return;
+    const handleMessage = (event: MessageEvent<{ action: 'UPSERT' | 'DELETE'; item: ItemRequest }>) => {
+      const { action, item } = event.data || {};
+      if (!item) return;
+      setItems((prev) => {
+        if (action === 'DELETE') {
+          return prev.filter((i) => i.id !== item.id);
+        }
+        return [item, ...prev.filter((i) => i.id !== item.id)];
+      });
+    };
+    p2pBroadcastChannel.addEventListener('message', handleMessage);
+    return () => {
+      p2pBroadcastChannel.removeEventListener('message', handleMessage);
+    };
+  }, []);
+
+  useEffect(() => {
     void cacheRows('nodes', seedNodes);
     void Promise.all([
       getRows<CrowdReport>('crowd_reports').then(setReports),
-      getRows<ItemRequest>('item_requests').then((rows) => setItems(rows.length ? rows : sampleP2pItems)),
+      getRows<ItemRequest>('item_requests').then(setItems),
       getRows<TrafficReport>('traffic_reports').then(setTrafficReports), getRows<GroupNode>('group_nodes').then(setGroupNodes),
       getRows<Sighting>('sightings').then(setSightings), getRows<SosAlert>('sos_alerts').then(setSosAlerts),
       getRows<BroadcastMessage>('broadcast_messages').then(setBroadcastMessages),
@@ -583,14 +590,34 @@ function App() {
       return;
     }
     if (!itemName.trim() || !currentMemberId || myActiveRequest) return;
-    const result = await queueWrite<ItemRequest>('item_requests', { requester_id: currentMemberId, item_name: itemName, lat: position?.coords.latitude, lng: position?.coords.longitude, status: 'open' });
-    setItemName(''); setItems((r) => [result.serverRecord ?? result.localRecord, ...r.filter((i) => i.id !== result.localRecord.id)]);
+    const result = await queueWrite<ItemRequest>('item_requests', {
+      requester_id: currentMemberId,
+      item_name: itemName,
+      lat: position?.coords.latitude ?? 18.5204,
+      lng: position?.coords.longitude ?? 73.8567,
+      status: 'open'
+    });
+    const finalRecord = result.serverRecord ?? result.localRecord;
+    setItemName('');
+    setItems((r) => [finalRecord, ...r.filter((i) => i.id !== finalRecord.id)]);
+    broadcastP2pUpdate('UPSERT', finalRecord);
   }
+
   async function updateItemRequest(item: ItemRequest, patch: Record<string, unknown>) {
-    if (!item.id || !currentMemberId || !isSupabaseConfigured) return;
-    const { data, error } = await supabase.from('item_requests').update(patch).eq('id', item.id).select().single();
-    if (!error) setItems((r) => r.map((i) => i.id === item.id ? (data as ItemRequest) : i));
+    if (!item.id) return;
+    const updated = { ...item, ...patch } as ItemRequest;
+    setItems((r) => r.map((i) => (i.id === item.id ? updated : i)));
+    broadcastP2pUpdate('UPSERT', updated);
+
+    if (isSupabaseConfigured) {
+      const { data } = await supabase.from('item_requests').update(patch).eq('id', item.id).select().single();
+      if (data) {
+        setItems((r) => r.map((i) => (i.id === item.id ? (data as ItemRequest) : i)));
+        broadcastP2pUpdate('UPSERT', data as ItemRequest);
+      }
+    }
   }
+
   async function acceptItem(item: ItemRequest) {
     if (!session) {
       setNotice({ type: 'error', text: 'Please sign in to use this feature.' });
@@ -602,10 +629,10 @@ function App() {
     }
     if (item.requester_id === currentMemberId) return;
 
-    const reqLat = item.lat ?? position?.coords.latitude ?? nodes[0]?.lat ?? 18.5204;
-    const reqLng = item.lng ?? position?.coords.longitude ?? nodes[0]?.lng ?? 73.8567;
-    const helpLat = position?.coords.latitude ?? nodes[0]?.lat ?? 18.5204;
-    const helpLng = position?.coords.longitude ?? nodes[0]?.lng ?? 73.8567;
+    const reqLat = item.lat ?? position?.coords.latitude ?? 18.5204;
+    const reqLng = item.lng ?? position?.coords.longitude ?? 73.8567;
+    const helpLat = position?.coords.latitude ?? 18.5204;
+    const helpLng = position?.coords.longitude ?? 73.8567;
 
     const match = findOptimalMeetingNode(reqLat, reqLng, helpLat, helpLng, nodes);
 
@@ -615,15 +642,15 @@ function App() {
       accepted_at: new Date().toISOString(),
       accepter_lat: helpLat,
       accepter_lng: helpLng,
-      meeting_node_id: match?.node.id,
-      meeting_node_name: match?.node.name,
-      meeting_node_lat: match?.node.lat,
-      meeting_node_lng: match?.node.lng
+      meeting_node_id: match.id,
+      meeting_node_name: match.name,
+      meeting_node_lat: match.lat,
+      meeting_node_lng: match.lng
     });
 
     setNotice({
       type: 'success',
-      text: `🤝 Matched! Optimal meeting node calculated: ${match?.node.name || 'Route Station'}`
+      text: `🤝 Matched! Meeting location: ${match.name}`
     });
   }
   async function completeItem(item: ItemRequest) {

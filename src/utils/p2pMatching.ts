@@ -15,17 +15,25 @@ export function calculateHaversineDistance(lat1: number, lon1: number, lat2: num
   return R * c; // Returns distance in meters
 }
 
-export interface MeetingMatchResult {
-  node: NodePoint;
+export interface MeetingPointLocation {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  type: 'station' | 'midpoint';
   requesterDistanceMeters: number;
   helperDistanceMeters: number;
-  totalDistanceMeters: number;
 }
 
 /**
- * Smart P2P Matching Algorithm:
- * Computes the optimal Wari route station node for meeting between Requester and Helper.
- * Minimizes total travel distance (d_requester + d_helper).
+ * Intelligent Spatial Engine:
+ * Computes optimal meeting spot between Pilgrim A (Requester) and Pilgrim B (Helper).
+ * 
+ * Logic:
+ * 1. Computes geographic centroid (midpoint) between both pilgrims' live positions.
+ * 2. Checks if a formal Wari Route Station Node is close to the midpoint (< 2.5km).
+ * 3. If a station node is nearby, uses the station node (e.g. "Saswad Station").
+ * 4. Otherwise, generates an exact Midpoint Trail Checkpoint (e.g. "Midpoint Trail Spot (between Dehu & Pune Halt)").
  */
 export function findOptimalMeetingNode(
   reqLat: number,
@@ -33,31 +41,64 @@ export function findOptimalMeetingNode(
   helpLat: number,
   helpLng: number,
   nodes: NodePoint[]
-): MeetingMatchResult | null {
-  if (!nodes || nodes.length === 0) return null;
+): MeetingPointLocation {
+  const midLat = (reqLat + helpLat) / 2;
+  const midLng = (reqLng + helpLng) / 2;
 
-  let bestNode: NodePoint = nodes[0];
-  let minTotalDistance = Infinity;
-  let bestReqDist = 0;
-  let bestHelpDist = 0;
+  let nearestStation: NodePoint | null = null;
+  let minStationDistToMid = Infinity;
 
-  for (const node of nodes) {
-    const reqDist = calculateHaversineDistance(reqLat, reqLng, node.lat, node.lng);
-    const helpDist = calculateHaversineDistance(helpLat, helpLng, node.lat, node.lng);
-    const totalDist = reqDist + helpDist;
-
-    if (totalDist < minTotalDistance) {
-      minTotalDistance = totalDist;
-      bestNode = node;
-      bestReqDist = reqDist;
-      bestHelpDist = helpDist;
+  if (nodes && nodes.length > 0) {
+    for (const node of nodes) {
+      const distToMid = calculateHaversineDistance(midLat, midLng, node.lat, node.lng);
+      if (distToMid < minStationDistToMid) {
+        minStationDistToMid = distToMid;
+        nearestStation = node;
+      }
     }
   }
 
+  // If a formal route station is close to the midpoint (< 2.5km), pick the station node
+  if (nearestStation && minStationDistToMid <= 2500) {
+    const reqDist = calculateHaversineDistance(reqLat, reqLng, nearestStation.lat, nearestStation.lng);
+    const helpDist = calculateHaversineDistance(helpLat, helpLng, nearestStation.lat, nearestStation.lng);
+
+    return {
+      id: nearestStation.id,
+      name: nearestStation.name,
+      lat: nearestStation.lat,
+      lng: nearestStation.lng,
+      type: 'station',
+      requesterDistanceMeters: Math.round(reqDist),
+      helperDistanceMeters: Math.round(helpDist)
+    };
+  }
+
+  // Otherwise, use the exact geographic midpoint checkpoint between both pilgrims
+  // Find closest two stations to give descriptive name (e.g. "Midpoint Trail Checkpoint")
+  let s1Name = 'Start Station';
+  let s2Name = 'End Station';
+
+  if (nodes && nodes.length >= 2) {
+    const sortedNodes = [...nodes].sort((a, b) => {
+      const dA = calculateHaversineDistance(midLat, midLng, a.lat, a.lng);
+      const dB = calculateHaversineDistance(midLat, midLng, b.lat, b.lng);
+      return dA - dB;
+    });
+    s1Name = sortedNodes[0].name;
+    s2Name = sortedNodes[1].name;
+  }
+
+  const reqDistMid = calculateHaversineDistance(reqLat, reqLng, midLat, midLng);
+  const helpDistMid = calculateHaversineDistance(helpLat, helpLng, midLat, midLng);
+
   return {
-    node: bestNode,
-    requesterDistanceMeters: Math.round(bestReqDist),
-    helperDistanceMeters: Math.round(bestHelpDist),
-    totalDistanceMeters: Math.round(minTotalDistance)
+    id: `midpoint-${Date.now()}`,
+    name: `🤝 Trail Midpoint Checkpoint (${s1Name} - ${s2Name} Trail)`,
+    lat: midLat,
+    lng: midLng,
+    type: 'midpoint',
+    requesterDistanceMeters: Math.round(reqDistMid),
+    helperDistanceMeters: Math.round(helpDistMid)
   };
 }
