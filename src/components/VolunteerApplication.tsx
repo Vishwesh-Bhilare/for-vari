@@ -75,13 +75,19 @@ export function VolunteerApplication({
       return;
     }
 
+    if (!userId) {
+      setNeedsAuth(true);
+      setMessage('Please sign in to submit your volunteer application.');
+      setSubmitting(false);
+      return;
+    }
+
     setSubmitting(true);
     setNeedsAuth(false);
 
-    const effectiveUserId = userId || crypto.randomUUID();
     const appRecord: VolunteerApplicationRecord = {
       id: crypto.randomUUID(),
-      user_id: effectiveUserId,
+      user_id: userId,
       full_name: form.full_name.trim(),
       phone: form.phone.trim(),
       emergency_contact: form.emergency_contact.trim(),
@@ -95,11 +101,7 @@ export function VolunteerApplication({
     };
 
     try {
-      // 1. Cache locally FIRST so it is guaranteed to show up in Admin Dashboard immediately
-      await cacheRows('volunteer_applications', [appRecord]);
-
-      // 2. Try inserting into Supabase if connected
-      if (isSupabaseConfigured && userId) {
+      if (isSupabaseConfigured) {
         if (form.emergency_contact.trim()) {
           await supabase
             .from('profiles')
@@ -120,10 +122,15 @@ export function VolunteerApplication({
         };
         let { error } = await supabase.from('volunteer_applications').insert(payload);
         if (error && error.code === '23503' && error.message?.includes('preferred_station')) {
-          await supabase.from('volunteer_applications').insert({ ...payload, preferred_station: null });
+          ({ error } = await supabase.from('volunteer_applications').insert({ ...payload, preferred_station: null }));
+        }
+        if (error) {
+          setMessage(error.message);
+          return;
         }
       }
 
+      await cacheRows('volunteer_applications', [appRecord]);
       setMessage('Your volunteer application has been submitted for admin review.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'An unexpected error occurred.');
