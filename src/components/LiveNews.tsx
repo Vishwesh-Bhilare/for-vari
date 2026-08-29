@@ -82,7 +82,6 @@ export function LiveNews() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [lastScraped, setLastScraped] = useState<number | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedLang, setSelectedLang] = useState<'all' | 'mr' | 'en'>('all');
@@ -92,15 +91,18 @@ export function LiveNews() {
   const fetchNews = async (forceRefresh = false) => {
     if (forceRefresh) setRefreshing(true);
     else setLoading(true);
-    setError(null);
 
     try {
-      // Try Vite proxy endpoint /api/news or direct Python server on localhost:5005
+      // 1. Try local Python scraper endpoint
       let res: Response | null = null;
       try {
-        res = await fetch(`/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(6000) });
+        res = await fetch(`/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(3000) });
       } catch {
-        res = await fetch(`http://127.0.0.1:5005/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(6000) });
+        try {
+          res = await fetch(`http://127.0.0.1:5005/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(3000) });
+        } catch {
+          res = null;
+        }
       }
 
       if (res && res.ok) {
@@ -113,12 +115,56 @@ export function LiveNews() {
           return;
         }
       }
-      throw new Error('News backend unreachable or returning empty results.');
+
+      // 2. Client-side Google News RSS fallback for Vercel / Cloud deployments
+      const rssUrls = [
+        'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://news.google.com/rss/search?q=Pandharpur+Wari&hl=mr&gl=IN&ceid=IN:mr'),
+        'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://news.google.com/rss/search?q=Pandharpur+Palkhi&hl=en-IN&gl=IN&ceid=IN:en')
+      ];
+
+      const liveRssNews: NewsItem[] = [];
+      for (const url of rssUrls) {
+        try {
+          const rssRes = await fetch(url, { signal: AbortSignal.timeout(4000) });
+          if (rssRes.ok) {
+            const data = await rssRes.json();
+            if (data.status === 'ok' && Array.isArray(data.items)) {
+              for (const rssItem of data.items) {
+                const title = (rssItem.title || '').trim();
+                if (!title) continue;
+                const ismr = /[\u0900-\u097F]/.test(title);
+                liveRssNews.push({
+                  id: rssItem.guid || rssItem.link || `${Date.now()}-${Math.random()}`,
+                  title,
+                  summary: rssItem.description ? rssItem.description.replace(/<[^>]*>?/gm, '').slice(0, 180) : '',
+                  link: rssItem.link,
+                  source: rssItem.author || (ismr ? 'वारकरी वृत्त' : 'Wari News Bulletin'),
+                  published: rssItem.pubDate || new Date().toISOString(),
+                  category: title.toLowerCase().includes('traffic') || title.includes('वाहतूक') || title.includes('मार्ग') ? 'traffic' : title.includes('मंदिर') || title.toLowerCase().includes('temple') || title.includes('दर्शन') ? 'temple' : 'palkhi',
+                  language: ismr ? 'mr' : 'en',
+                  scraped_at: Math.floor(Date.now() / 1000)
+                });
+              }
+            }
+          }
+        } catch {
+          // continue
+        }
+      }
+
+      if (liveRssNews.length > 0) {
+        setNews(liveRssNews);
+        setLastScraped(Math.floor(Date.now() / 1000));
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      // 3. Fallback to cached bulletins if offline
+      setNews((prev) => (prev.length > 0 ? prev : FALLBACK_NEWS));
     } catch (err) {
       console.warn('Realtime news fetch notice:', err);
-      // Graceful fallback to pre-scraped news
       setNews((prev) => (prev.length > 0 ? prev : FALLBACK_NEWS));
-      setError('Python real-time scraper is offline. Showing recent cached news.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -286,29 +332,13 @@ export function LiveNews() {
         </div>
       </div>
 
-      {/* Offline Notice banner if python server is disconnected */}
-      {error && (
-        <div className="mt-3 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
-          <span className="flex items-center gap-1.5 font-medium">
-            <span>ℹ️</span>
-            {error}
-          </span>
-          <button
-            onClick={() => void fetchNews(true)}
-            className="shrink-0 rounded-lg bg-amber-200/80 px-2 py-1 font-bold text-amber-900 hover:bg-amber-300"
-          >
-            Retry Scraping
-          </button>
-        </div>
-      )}
-
       {/* News List */}
       <div className="mt-4 space-y-3">
         {loading ? (
           <div className="space-y-3 py-6 text-center">
             <div className="mx-auto h-8 w-8 animate-spin rounded-full border-3 border-saffron-600 border-t-transparent" />
             <p className="text-xs font-semibold text-stone-500">
-              Running Python real-time news scraper...
+              Fetching latest Wari news & updates...
             </p>
           </div>
         ) : filteredNews.length === 0 ? (
