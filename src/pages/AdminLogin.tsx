@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { cacheRows, deleteEmergencyContact, deleteVolunteerApplication, getEmergencyContacts, getRows, saveEmergencyContact } from '../db';
 import { getSupabaseConfigError, isSupabaseConfigured, supabase } from '../supabase';
 import { signIn } from '../auth';
-import type { EmergencyContact, NodePoint, VolunteerApplication } from '../types';
+import type { BroadcastMessage, EmergencyContact, NodePoint, VolunteerApplication } from '../types';
 
 type NodeForm = { id?: string; name: string; lat: string; lng: string; sequence_order: string };
 const emptyNodeForm: NodeForm = { name: '', lat: '', lng: '', sequence_order: '' };
@@ -16,7 +16,8 @@ export function AdminLogin({
   routeStationCount = 0,
   nodes = [],
   onNodesChange,
-  onApproveVolunteer
+  onApproveVolunteer,
+  onBroadcastCreated
 }: {
   userId?: string;
   userEmail?: string;
@@ -27,6 +28,7 @@ export function AdminLogin({
   nodes?: NodePoint[];
   onNodesChange?: (nodes: NodePoint[]) => void;
   onApproveVolunteer?: (application: VolunteerApplication) => void;
+  onBroadcastCreated?: (broadcast: BroadcastMessage) => void;
 }) {
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState<VolunteerApplication[]>([]);
@@ -35,6 +37,9 @@ export function AdminLogin({
   const [adminPassword, setAdminPassword] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [broadcastText, setBroadcastText] = useState('');
+  const [broadcastExpiresAt, setBroadcastExpiresAt] = useState('');
+  const [broadcasting, setBroadcasting] = useState(false);
 
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [contactTitle, setContactTitle] = useState('');
@@ -212,6 +217,38 @@ export function AdminLogin({
     setMessage(`✓ Permanently removed volunteer application for ${application.full_name}.`);
   }
 
+  async function sendBroadcast(event: React.FormEvent) {
+    event.preventDefault();
+    if (!isAdmin || !userId || !isSupabaseConfigured) return;
+    const text = broadcastText.trim();
+    if (!text) {
+      setMessage('Enter a broadcast message before publishing.');
+      return;
+    }
+    setBroadcasting(true);
+    const payload = {
+      message: text,
+      created_by: userId,
+      expires_at: broadcastExpiresAt ? new Date(broadcastExpiresAt).toISOString() : null,
+      active: true
+    };
+    const { data, error } = await supabase
+      .from('broadcast_messages')
+      .insert(payload)
+      .select('*')
+      .single();
+    setBroadcasting(false);
+    if (error) {
+      setMessage(`Broadcast failed: ${error.message}`);
+      return;
+    }
+    setBroadcastText('');
+    setBroadcastExpiresAt('');
+    setMessage('Broadcast published to all pilgrims. Only the three newest active broadcasts are kept.');
+    if (data) onBroadcastCreated?.(data as BroadcastMessage);
+  }
+  }
+
   async function saveNode(event: React.FormEvent) {
     event.preventDefault();
     if (!isAdmin || !isSupabaseConfigured) return;
@@ -357,6 +394,33 @@ export function AdminLogin({
         <Stat label="ACTIVE SOS EMERGENCIES" value={activeSosCount} color="text-red-500" />
         <Stat label="REGISTERED PROFILES" value={registeredProfileCount} color="text-stone-800" />
         <Stat label="ROUTE STATIONS" value={routeStationCount} color="text-teal-600" />
+      </div>
+
+
+      <div className="rounded-3xl border border-amber-200 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-stone-900 mb-2 flex items-center gap-2">
+          <span>📢</span> Broadcast Message
+        </h2>
+        <p className="mb-4 text-sm text-stone-500">Publish a short text alert that scrolls across the top of the app for signed-in and guest pilgrims. The app keeps only the three newest active broadcasts; adding another replaces the oldest.</p>
+        <form className="grid gap-3 md:grid-cols-[1fr_220px_auto]" onSubmit={(event) => void sendBroadcast(event)}>
+          <input
+            className="rounded-xl border border-stone-300 p-3 text-sm"
+            maxLength={220}
+            placeholder="e.g. Heavy rain near Wakhri. Please follow volunteer instructions."
+            value={broadcastText}
+            onChange={(e) => setBroadcastText(e.target.value)}
+          />
+          <input
+            className="rounded-xl border border-stone-300 p-3 text-sm"
+            type="datetime-local"
+            value={broadcastExpiresAt}
+            onChange={(e) => setBroadcastExpiresAt(e.target.value)}
+            aria-label="Optional broadcast expiry"
+          />
+          <button disabled={broadcasting || !broadcastText.trim()} className="rounded-xl bg-amber-600 px-4 py-3 text-sm font-bold text-white shadow disabled:opacity-50">
+            {broadcasting ? 'Publishing…' : 'Broadcast'}
+          </button>
+        </form>
       </div>
 
       <div className="rounded-3xl border border-stone-200 bg-white p-6 shadow-sm">

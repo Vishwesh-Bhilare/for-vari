@@ -124,6 +124,16 @@ export interface Sighting {
 export type SosCategory = 'medical' | 'lost' | 'accident' | 'crowd' | 'water_food' | 'general';
 export type PacketType = 'sos_outward' | 'chat_outward' | 'news_inward' | 'goods_services_inward';
 
+export interface BroadcastMessage {
+  id?: string | number;
+  message: string;
+  created_by?: string;
+  created_at?: string;
+  expires_at?: string | null;
+  active?: boolean;
+  pending?: boolean;
+}
+
 export interface SosAlert {
   id?: string | number;
   member_id?: string;
