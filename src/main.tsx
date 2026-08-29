@@ -584,7 +584,11 @@ function App() {
       return;
     }
     if (!registration.name.trim() || !currentMemberId || !isSupabaseConfigured) {
-      setNotice({ type: 'error', text: 'Please sign in and enter a name before registering a group.' });
+      setNotice({ type: 'error', text: 'Please sign in and enter your name before registering a group.' });
+      return;
+    }
+    if (!registration.photo) {
+      setNotice({ type: 'error', text: '📷 Pilgrim photo upload is compulsory. Please select your photo before registering.' });
       return;
     }
     const normalizedGroupCode = registration.groupCode.trim();
@@ -620,13 +624,25 @@ function App() {
 
     let photo_url: string | undefined;
     if (registration.photo) {
-      const path = `${groupId}/${currentMemberId}-${registration.photo.name}`;
-      const { data, error } = await supabase.storage.from('member-photos').upload(path, registration.photo, { upsert: true });
-      if (error) {
-        setNotice({ type: 'error', text: `Photo upload failed: ${error.message}` });
-        return;
+      try {
+        const path = `${groupId}/${currentMemberId}-${registration.photo.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const { data, error } = await supabase.storage.from('member-photos').upload(path, registration.photo, { upsert: true });
+        if (!error && data) {
+          photo_url = supabase.storage.from('member-photos').getPublicUrl(data.path).data.publicUrl;
+        } else {
+          photo_url = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(registration.photo!);
+          });
+        }
+      } catch (err) {
+        photo_url = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(registration.photo!);
+        });
       }
-      if (data) photo_url = supabase.storage.from('member-photos').getPublicUrl(data.path).data.publicUrl;
     }
     const profilePatch = { group_id: groupId, display_name: registration.name, phone: registration.phone, emergency_contact: registration.emergency, ...(photo_url ? { photo_url } : {}) };
     const { error } = await supabase.from('profiles').update(profilePatch).eq('id', currentMemberId);
@@ -706,7 +722,47 @@ function GroupPanel({ session, profile, groupAction, setGroupAction, registratio
     {locationError && <p className="mt-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">Could not load live locations: {locationError}</p>}
     {familyProfiles.length === 0 && !locationError && <p className="mt-2 text-xs text-stone-500">Loading group members…</p>}
   </section>;
-  return <><div className="mb-3 grid grid-cols-2 gap-2"><button onClick={() => { setGroupAction('create'); setRegistration({ ...registration, groupCode: makeGroupCode() }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'create' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Create group</button><button onClick={() => { setGroupAction('join'); setRegistration({ ...registration, groupCode: '' }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'join' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Join group</button></div><p className="mb-3 text-xs text-stone-500">{groupAction === 'create' ? 'A unique code has been generated. Share it only with your group.' : 'Enter the unique code shared by your group organiser.'}</p><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Your name" value={registration.name} onChange={e => setRegistration({ ...registration, name: e.target.value })}/><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Unique group code" value={registration.groupCode} onChange={e => setRegistration({ ...registration, groupCode: e.target.value.toUpperCase() })}/><button onClick={onSubmit} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">{groupAction === 'create' ? 'Create & join group' : 'Join group'}</button>{registeredGroup && <><p className="mt-3 rounded-xl bg-green-50 p-3 text-xs font-bold text-green-700">Your group code: {registeredGroup}</p><p className="mt-2 text-xs text-stone-500">{familyProfiles.length} member{familyProfiles.length === 1 ? '' : 's'} in your group. Purple map dots are shared only after each member grants location access.</p></>}</>;
+  const photoPreview = registration.photo ? URL.createObjectURL(registration.photo) : null;
+
+  return (
+    <>
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => { setGroupAction('create'); setRegistration({ ...registration, groupCode: makeGroupCode() }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'create' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Create group</button>
+        <button type="button" onClick={() => { setGroupAction('join'); setRegistration({ ...registration, groupCode: '' }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'join' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Join group</button>
+      </div>
+      <p className="mb-3 text-xs text-stone-500">{groupAction === 'create' ? 'A unique code has been generated. Share it only with your group.' : 'Enter the unique code shared by your group organiser.'}</p>
+      
+      <input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Your full name *" value={registration.name} onChange={e => setRegistration({ ...registration, name: e.target.value })} required />
+      <input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Unique group code *" value={registration.groupCode} onChange={e => setRegistration({ ...registration, groupCode: e.target.value.toUpperCase() })} required />
+      
+      {/* Compulsory Pilgrim Photo Upload Field */}
+      <div className="mb-4 rounded-2xl border-2 border-dashed border-saffron-300 bg-saffron-50/60 p-4 text-center">
+        <label className="block text-xs font-extrabold uppercase tracking-wider text-saffron-950 mb-1">
+          📷 Pilgrim Photo <span className="text-red-600 font-black">(Compulsory *)</span>
+        </label>
+        <p className="text-[11px] text-stone-500 mb-3">Upload your clear photo for group identity and pilgrim safety tracking.</p>
+        
+        {photoPreview ? (
+          <div className="flex flex-col items-center gap-2">
+            <img src={photoPreview} alt="Pilgrim Preview" className="h-20 w-20 rounded-full object-cover border-2 border-saffron-600 shadow-md" />
+            <span className="text-xs font-bold text-green-700">✓ Photo selected: {registration.photo?.name}</span>
+            <label className="cursor-pointer text-xs font-bold text-saffron-700 underline mt-1">
+              Change photo
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) setRegistration({ ...registration, photo: file }); }} />
+            </label>
+          </div>
+        ) : (
+          <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-saffron-600 px-4 py-2.5 text-xs font-bold text-white shadow hover:bg-saffron-700 transition-colors">
+            <span>📤 Choose Pilgrim Photo *</span>
+            <input type="file" accept="image/*" required className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) setRegistration({ ...registration, photo: file }); }} />
+          </label>
+        )}
+      </div>
+
+      <button onClick={onSubmit} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">{groupAction === 'create' ? 'Create & join group' : 'Join group'}</button>
+      {registeredGroup && <><p className="mt-3 rounded-xl bg-green-50 p-3 text-xs font-bold text-green-700">Your group code: {registeredGroup}</p><p className="mt-2 text-xs text-stone-500">{familyProfiles.length} member{familyProfiles.length === 1 ? '' : 's'} in your group. Purple map dots are shared only after each member grants location access.</p></>}
+    </>
+  );
 }
 
 function VolunteerDashboard({ session, profile, role, approved, loading, nodes, sosAlerts, sightings, setSosAlerts, setSightings }: { session: ReturnType<typeof useSession>['session']; profile: Profile | null; role: string; approved: boolean; loading: boolean; nodes: NodePoint[]; sosAlerts: SosAlert[]; sightings: Sighting[]; setSosAlerts: React.Dispatch<React.SetStateAction<SosAlert[]>>; setSightings: React.Dispatch<React.SetStateAction<Sighting[]>> }) {

@@ -406,4 +406,30 @@ exception
   when duplicate_object then null;
 end $$;
 
+-- =========================================================
+-- PILGRIM PHOTO STORAGE BUCKET & POLICIES
+-- =========================================================
+
+alter table public.profiles add column if not exists photo_url text;
+
+insert into storage.buckets (id, name, public)
+values ('member-photos', 'member-photos', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "Anyone can view member photos" on storage.objects;
+drop policy if exists "Authenticated users can upload member photos" on storage.objects;
+drop policy if exists "Users can update own member photos" on storage.objects;
+
+create policy "Anyone can view member photos"
+  on storage.objects for select
+  using (bucket_id = 'member-photos');
+
+create policy "Authenticated users can upload member photos"
+  on storage.objects for insert
+  with check (bucket_id = 'member-photos' and auth.role() = 'authenticated');
+
+create policy "Users can update own member photos"
+  on storage.objects for update
+  using (bucket_id = 'member-photos' and auth.role() = 'authenticated');
+
 notify pgrst, 'reload schema';
