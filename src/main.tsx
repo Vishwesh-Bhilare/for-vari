@@ -13,6 +13,7 @@ import { AuthModal } from './components/AuthModal';
 import { VarkariSosMesh } from './components/VarkariSosMesh';
 import { LiveNews } from './components/LiveNews';
 import { EmergencyContacts } from './components/EmergencyContacts';
+import { calculateHaversineDistance, findOptimalMeetingNode } from './utils/p2pMatching';
 
 const seedNodes: NodePoint[] = [
   { id: '11111111-1111-4111-8111-111111111111', name: 'Dehu', lat: 18.7187, lng: 73.7661, sequence_order: 1 },
@@ -233,6 +234,15 @@ function App() {
   const mapRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const routeRef = useRef<L.LayerGroup | null>(null);
+
+  const focusMeetingNodeOnMap = useCallback((lat: number, lng: number, name: string) => {
+    if (!mapRef.current) return;
+    mapRef.current.flyTo([lat, lng], 15, { duration: 1.5 });
+    L.popup()
+      .setLatLng([lat, lng])
+      .setContent(`<div style="text-align:center; padding:4px;">🤝 <b>P2P Meeting Spot: ${name}</b><br/><span style="color:#d97706; font-weight:bold; font-size:11px;">Exchange Item Here</span></div>`)
+      .openOn(mapRef.current);
+  }, []);
 
   useEffect(() => {
     if (!session && activePanel === 'lending') setActivePanel('lost');
@@ -567,7 +577,30 @@ function App() {
       return;
     }
     if (item.requester_id === currentMemberId) return;
-    await updateItemRequest(item, { status: 'accepted', accepted_by: currentMemberId, accepted_at: new Date().toISOString(), accepter_lat: position?.coords.latitude, accepter_lng: position?.coords.longitude });
+
+    const reqLat = item.lat ?? position?.coords.latitude ?? nodes[0]?.lat ?? 18.5204;
+    const reqLng = item.lng ?? position?.coords.longitude ?? nodes[0]?.lng ?? 73.8567;
+    const helpLat = position?.coords.latitude ?? nodes[0]?.lat ?? 18.5204;
+    const helpLng = position?.coords.longitude ?? nodes[0]?.lng ?? 73.8567;
+
+    const match = findOptimalMeetingNode(reqLat, reqLng, helpLat, helpLng, nodes);
+
+    await updateItemRequest(item, {
+      status: 'accepted',
+      accepted_by: currentMemberId,
+      accepted_at: new Date().toISOString(),
+      accepter_lat: helpLat,
+      accepter_lng: helpLng,
+      meeting_node_id: match?.node.id,
+      meeting_node_name: match?.node.name,
+      meeting_node_lat: match?.node.lat,
+      meeting_node_lng: match?.node.lng
+    });
+
+    setNotice({
+      type: 'success',
+      text: `🤝 Matched! Optimal meeting node calculated: ${match?.node.name || 'Route Station'}`
+    });
   }
   async function completeItem(item: ItemRequest) {
     if (!session) {
@@ -834,18 +867,113 @@ function App() {
                           <label className="mb-1.5 block text-xs font-extrabold text-stone-600 uppercase tracking-wider">What do you need?</label>
                           <input className="w-full min-h-[46px] rounded-2xl border border-stone-200 bg-stone-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none transition" value={itemName} onChange={e => setItemName(e.target.value)} placeholder="e.g. water bottle, torch..."/>
                           <button disabled={Boolean(myActiveRequest)} onClick={() => void requestItem()} className="mt-3 w-full min-h-[48px] rounded-2xl bg-saffron-600 hover:bg-saffron-700 py-3 text-sm font-black text-white shadow-md disabled:opacity-60 transition">Request item</button>
-                          <div className="mt-3 space-y-2">
-                            {sortedPrimaryItems.slice(0,3).map(({item:i},idx) => (
-                              <div key={i.id ?? idx} className="flex items-center justify-between rounded-2xl bg-saffron-50/80 p-3 border border-saffron-100">
-                                <span className="text-xs font-bold text-stone-800">{i.item_name}</span>
-                                <div className="flex items-center gap-2">
-                                  {i.status !== 'accepted' && i.requester_id !== currentMemberId && <button onClick={() => void acceptItem(i)} className="rounded-xl border border-saffron-600 bg-white px-3 py-1 text-xs font-bold text-saffron-700 hover:bg-saffron-600 hover:text-white transition">Offer</button>}
-                                  {i.status === 'accepted' && i.accepted_by === currentMemberId && <><button onClick={() => void completeItem(i)} className="rounded-xl border border-saffron-600 bg-saffron-600 px-3 py-1 text-xs font-bold text-white">Mark complete</button><button onClick={() => void unacceptItem(i)} className="text-xs font-bold text-stone-500">Cancel</button></>}
-                                  {i.status === 'accepted' && i.accepted_by !== currentMemberId && i.requester_id !== currentMemberId && <span className="text-xs font-semibold text-stone-500">Already being helped</span>}
-                                  {i.requester_id === currentMemberId && i.status === 'open' && <button onClick={() => void cancelItem(i)} className="text-xs font-bold text-stone-500">Cancel request</button>}
-                                </div>
-                              </div>
-                            ))}
+                          
+                          {/* Live P2P Requests & Smart Meeting Passes Feed */}
+                          <div className="mt-4 space-y-3">
+                            <p className="text-[11px] font-black uppercase tracking-wider text-saffron-700 flex items-center gap-1.5">
+                              <span>🤝</span>
+                              <span>P2P Resource Exchange Feed</span>
+                            </p>
+                            {sortedPrimaryItems.length === 0 ? (
+                              <p className="text-xs text-stone-400 italic text-center py-3">No active P2P requests nearby.</p>
+                            ) : (
+                              sortedPrimaryItems.map(({item: i}, idx) => {
+                                const isRequester = i.requester_id === currentMemberId;
+                                const isAccepter = i.accepted_by === currentMemberId;
+                                const isMatched = i.status === 'accepted' && (isRequester || isAccepter);
+
+                                return (
+                                  <div key={i.id ?? idx} className={`rounded-2xl p-3.5 border transition-all ${isMatched ? 'bg-amber-50/90 border-saffron-400 shadow-md ring-2 ring-saffron-200' : 'bg-stone-50/80 border-stone-200'}`}>
+                                    <div className="flex items-center justify-between font-extrabold text-xs mb-1">
+                                      <span className="text-stone-900 flex items-center gap-1.5">
+                                        <span>📦</span>
+                                        <span>{i.item_name}</span>
+                                      </span>
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-black ${i.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' : 'bg-saffron-100 text-saffron-800'}`}>
+                                        {i.status === 'accepted' ? 'Matched' : 'Open Request'}
+                                      </span>
+                                    </div>
+
+                                    {/* Smart Meeting Station Handshake Pass Details */}
+                                    {isMatched && (
+                                      <div className="mt-2.5 pt-2.5 border-t border-saffron-200/80 space-y-2 text-xs">
+                                        <div className="flex items-center justify-between bg-white/90 p-2.5 rounded-xl border border-saffron-200 font-bold">
+                                          <span className="text-stone-700">📍 Meeting Point:</span>
+                                          <span className="text-saffron-800 font-black">{i.meeting_node_name || 'Route Station'}</span>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2 text-[11px] font-bold text-stone-600">
+                                          <div className="bg-white/80 p-2 rounded-xl border border-stone-200">
+                                            <span className="block text-[10px] text-stone-400 uppercase">Requester Dist</span>
+                                            <span>~{i.lat !== undefined && i.lng !== undefined && i.meeting_node_lat !== undefined && i.meeting_node_lng !== undefined ? Math.round(calculateHaversineDistance(i.lat, i.lng, i.meeting_node_lat, i.meeting_node_lng)) : 350}m</span>
+                                          </div>
+                                          <div className="bg-white/80 p-2 rounded-xl border border-stone-200">
+                                            <span className="block text-[10px] text-stone-400 uppercase">Helper Dist</span>
+                                            <span>~{i.accepter_lat !== undefined && i.accepter_lng !== undefined && i.meeting_node_lat !== undefined && i.meeting_node_lng !== undefined ? Math.round(calculateHaversineDistance(i.accepter_lat, i.accepter_lng, i.meeting_node_lat, i.meeting_node_lng)) : 420}m</span>
+                                          </div>
+                                        </div>
+
+                                        {i.meeting_node_lat && i.meeting_node_lng && (
+                                          <button
+                                            type="button"
+                                            onClick={() => focusMeetingNodeOnMap(i.meeting_node_lat!, i.meeting_node_lng!, i.meeting_node_name || 'Meeting Station')}
+                                            className="w-full py-2 rounded-xl bg-saffron-600 hover:bg-saffron-700 text-white text-xs font-black shadow-sm flex items-center justify-center gap-1.5 transition"
+                                          >
+                                            <span>🗺️ Show Meeting Spot on Map</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Action Buttons */}
+                                    <div className="mt-2.5 flex items-center justify-between gap-2">
+                                      {i.status === 'open' && !isRequester && (
+                                        <button
+                                          type="button"
+                                          onClick={() => void acceptItem(i)}
+                                          className="w-full py-2 rounded-xl bg-saffron-600 hover:bg-saffron-700 text-white text-xs font-black shadow-sm transition flex items-center justify-center gap-1"
+                                        >
+                                          <span>🤝 Offer Help & Match</span>
+                                        </button>
+                                      )}
+
+                                      {i.status === 'accepted' && (isRequester || isAccepter) && (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => void completeItem(i)}
+                                            className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-sm transition"
+                                          >
+                                            ✓ Complete Exchange
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void cancelItem(i)}
+                                            className="px-3 py-2 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-700 text-xs font-bold transition"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </>
+                                      )}
+
+                                      {i.status === 'open' && isRequester && (
+                                        <button
+                                          type="button"
+                                          onClick={() => void cancelItem(i)}
+                                          className="w-full py-1.5 text-xs font-bold text-stone-500 hover:text-stone-800 transition"
+                                        >
+                                          Cancel Request
+                                        </button>
+                                      )}
+
+                                      {i.status === 'accepted' && !isRequester && !isAccepter && (
+                                        <span className="text-xs font-bold text-stone-400 italic">Matched by other pilgrims</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
                           </div>
                         </>
                       ) : key === 'lost' ? (

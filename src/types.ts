@@ -103,6 +103,10 @@ export interface ItemRequest {
   accepted_at?: string;
   accepter_lat?: number;
   accepter_lng?: number;
+  meeting_node_id?: string;
+  meeting_node_name?: string;
+  meeting_node_lat?: number;
+  meeting_node_lng?: number;
   created_at?: string;
   pending?: boolean;
 }
