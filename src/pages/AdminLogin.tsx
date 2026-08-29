@@ -229,7 +229,7 @@ export function AdminLogin({
     }
     setBroadcastText('');
     setBroadcastExpiresAt('');
-    setMessage('Broadcast published to all pilgrims.');
+    setMessage('Broadcast published to all pilgrims. Only the three newest active broadcasts are kept.');
     if (data) onBroadcastCreated?.(data as BroadcastMessage);
   }
 
@@ -385,7 +385,7 @@ export function AdminLogin({
         <h2 className="text-lg font-bold text-stone-900 mb-2 flex items-center gap-2">
           <span>📢</span> Broadcast Message
         </h2>
-        <p className="mb-4 text-sm text-stone-500">Publish a short text alert that scrolls across the top of the app for signed-in and guest pilgrims.</p>
+        <p className="mb-4 text-sm text-stone-500">Publish a short text alert that scrolls across the top of the app for signed-in and guest pilgrims. The app keeps only the three newest active broadcasts; adding another replaces the oldest.</p>
         <form className="grid gap-3 md:grid-cols-[1fr_220px_auto]" onSubmit={(event) => void sendBroadcast(event)}>
           <input
             className="rounded-xl border border-stone-300 p-3 text-sm"
