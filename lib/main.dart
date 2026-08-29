@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
 
-// Local Dev URL for Android Emulator (10.0.2.2 points to host machine localhost:5173)
-const String localDevUrl = 'http://10.0.2.2:5173/';
+// Local Dev URLs for Android Emulator (10.0.2.2 points to host machine localhost)
+const String localHttpUrl = 'http://10.0.2.2:5173/';
+const String localHttpsUrl = 'https://10.0.2.2:5173/';
 const String vercelUrl = 'https://for-vari.vercel.app/';
-
-// Toggle activeUrl between localDevUrl and vercelUrl as needed
-const String activeUrl = localDevUrl;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +38,8 @@ class FullscreenWebView extends StatefulWidget {
 
 class _FullscreenWebViewState extends State<FullscreenWebView> {
   late final WebViewController _controller;
+  bool _hasError = false;
+  String _currentUrl = localHttpUrl;
 
   @override
   void initState() {
@@ -48,8 +47,26 @@ class _FullscreenWebViewState extends State<FullscreenWebView> {
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(NavigationDelegate())
-      ..loadRequest(Uri.parse(activeUrl));
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onWebResourceError: (WebResourceError error) {
+            debugPrint('WebView Error: ${error.description}');
+            // If localHttpUrl failed, try localHttpsUrl, then fallback to vercelUrl
+            if (_currentUrl == localHttpUrl) {
+              setState(() {
+                _currentUrl = localHttpsUrl;
+              });
+              _controller.loadRequest(Uri.parse(localHttpsUrl));
+            } else if (_currentUrl == localHttpsUrl) {
+              setState(() {
+                _currentUrl = vercelUrl;
+              });
+              _controller.loadRequest(Uri.parse(vercelUrl));
+            }
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(localHttpUrl));
   }
 
   @override
@@ -70,7 +87,9 @@ class _FullscreenWebViewState extends State<FullscreenWebView> {
       },
       child: Scaffold(
         resizeToAvoidBottomInset: false,
-        body: SizedBox.expand(
+        body: SafeArea(
+          top: false,
+          bottom: false,
           child: WebViewWidget(controller: _controller),
         ),
       ),
