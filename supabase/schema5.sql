@@ -40,6 +40,30 @@ create policy "anyone can read active broadcasts" on broadcast_messages for sele
 create policy "admins create broadcasts" on broadcast_messages for insert with check (public.is_admin() and created_by = auth.uid());
 create policy "admins manage broadcasts" on broadcast_messages for update using (public.is_admin()) with check (public.is_admin());
 
+create or replace function public.keep_three_active_broadcasts()
+returns trigger as $$
+begin
+  if new.active then
+    update public.broadcast_messages
+    set active = false
+    where id in (
+      select id
+      from public.broadcast_messages
+      where active = true
+      order by created_at desc, id desc
+      offset 3
+    );
+  end if;
+
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists keep_three_active_broadcasts on public.broadcast_messages;
+create trigger keep_three_active_broadcasts
+  after insert or update of active, created_at on public.broadcast_messages
+  for each row execute function public.keep_three_active_broadcasts();
+
 do $$
 begin
   alter publication supabase_realtime add table broadcast_messages;
