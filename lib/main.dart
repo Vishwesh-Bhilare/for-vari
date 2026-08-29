@@ -40,7 +40,7 @@ class FullscreenWebView extends StatefulWidget {
 
 class _FullscreenWebViewState extends State<FullscreenWebView> {
   late final WebViewController _controller;
-  String _currentUrl = localHttpsUrl;
+  String _currentUrl = localHttpUrl;
 
   @override
   void initState() {
@@ -65,12 +65,7 @@ class _FullscreenWebViewState extends State<FullscreenWebView> {
           },
           onWebResourceError: (WebResourceError error) {
             debugPrint('WebView Notice (${error.errorCode}): ${error.description}');
-            if (_currentUrl == localHttpsUrl) {
-              setState(() {
-                _currentUrl = localHttpUrl;
-              });
-              _controller.loadRequest(Uri.parse(localHttpUrl));
-            } else if (_currentUrl == localHttpUrl) {
+            if (_currentUrl == localHttpUrl) {
               setState(() {
                 _currentUrl = vercelUrl;
               });
@@ -87,7 +82,7 @@ class _FullscreenWebViewState extends State<FullscreenWebView> {
       );
     }
 
-    _controller.loadRequest(Uri.parse(localHttpsUrl));
+    _controller.loadRequest(Uri.parse(localHttpUrl));
   }
 
   @override
