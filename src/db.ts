@@ -5,7 +5,7 @@ import type { EmergencyContact, MeshChatMessage, MeshGoodsService, MeshNewsBroad
 const MAX_OUTBOX_ATTEMPTS = 5;
 const retryDelay = (attempts: number) => Math.min(60_000, 2 ** Math.max(0, attempts - 1) * 2_000);
 
-const dbPromise = openDB('vari-companion', 7, {
+const dbPromise = openDB('vari-companion', 10, {
   upgrade(db) {
     if (!db.objectStoreNames.contains('nodes')) db.createObjectStore('nodes', { keyPath: 'id' });
     if (!db.objectStoreNames.contains('crowd_reports')) db.createObjectStore('crowd_reports', { keyPath: 'id', autoIncrement: true });
@@ -14,7 +14,7 @@ const dbPromise = openDB('vari-companion', 7, {
     if (!db.objectStoreNames.contains('item_requests')) db.createObjectStore('item_requests', { keyPath: 'id', autoIncrement: true });
     if (!db.objectStoreNames.contains('sightings')) db.createObjectStore('sightings', { keyPath: 'id', autoIncrement: true });
     if (!db.objectStoreNames.contains('sos_alerts')) db.createObjectStore('sos_alerts', { keyPath: 'id', autoIncrement: true });
-    if (!db.objectStoreNames.contains('broadcast_messages')) db.createObjectStore('broadcast_messages', { keyPath: 'id', autoIncrement: true });
+    if (!db.objectStoreNames.contains('broadcast_messages')) db.createObjectStore('broadcast_messages', { keyPath: 'id' });
     if (!db.objectStoreNames.contains('volunteer_applications')) db.createObjectStore('volunteer_applications', { keyPath: 'id' });
     if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'id', autoIncrement: true });
     if (!db.objectStoreNames.contains('mesh_messages')) db.createObjectStore('mesh_messages', { keyPath: 'id' });
@@ -87,14 +87,26 @@ export async function getMeshGoodsServices(): Promise<MeshGoodsService[]> {
 }
 
 export async function cacheRows<T extends { id?: string | number }>(store: string, rows: T[]) {
-  const db = await dbPromise;
-  const tx = db.transaction(store, 'readwrite');
-  await Promise.all(rows.map((row) => tx.store.put(row)));
-  await tx.done;
+  try {
+    const db = await dbPromise;
+    if (!db.objectStoreNames.contains(store)) return;
+    const tx = db.transaction(store, 'readwrite');
+    await Promise.all(rows.map((row) => tx.store.put(row)));
+    await tx.done;
+  } catch (err) {
+    console.warn(`[db] cacheRows failed for store ${store}:`, err);
+  }
 }
 
 export async function getRows<T>(store: string): Promise<T[]> {
-  return (await dbPromise).getAll(store);
+  try {
+    const db = await dbPromise;
+    if (!db.objectStoreNames.contains(store)) return [];
+    return await db.getAll(store);
+  } catch (err) {
+    console.warn(`[db] getRows failed for store ${store}:`, err);
+    return [];
+  }
 }
 
 export async function queueWrite<T extends StoredRecord>(table: string, payload: Record<string, unknown>, priority: QueuePriority = 'normal') {
