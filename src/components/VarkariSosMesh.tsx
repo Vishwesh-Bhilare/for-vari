@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import QRCode from 'qrcode';
+import jsQR from 'jsqr';
 import {
   getEmergencyContacts,
   getMeshGoodsServices,
@@ -87,6 +89,36 @@ const CATEGORY_CONFIG: Record<
   }
 };
 
+
+
+type MeshPacket = {
+  type: string;
+  payload: unknown;
+  packetId: string;
+  hopCount: number;
+  relayPath: string[];
+};
+
+const getOrCreateDeviceId = (displayName?: string) => {
+  const storageKey = 'vari-mitra-mesh-device-id';
+  try {
+    const existingId = window.localStorage.getItem(storageKey);
+    if (existingId) return existingId;
+
+    const friendlyName = displayName?.trim()
+      ? displayName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      : 'varkari';
+    const randomBytes = new Uint8Array(4);
+    window.crypto.getRandomValues(randomBytes);
+    const randomSuffix = Array.from(randomBytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const deviceId = `node-${friendlyName}-${randomSuffix}`;
+    window.localStorage.setItem(storageKey, deviceId);
+    return deviceId;
+  } catch {
+    return `node-varkari-${Date.now().toString(36)}`;
+  }
+};
+
 const QUICK_MESSAGES = [
   { mr: '🚩 मी सुरक्षित आहे', en: '🚩 I am safe' },
   { mr: '🚑 रुग्णवाहिका तातडीने पाठवा!', en: '🚑 Send an ambulance urgently!' },
@@ -133,14 +165,34 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
   const [goodsServices, setGoodsServices] = useState<MeshGoodsService[]>([]);
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [chatText, setChatText] = useState('');
-  const [btStatus, setBtStatus] = useState<string>('Ready for Bluetooth P2P scanning');
-  const [connectedBtDevices, setConnectedBtDevices] = useState<string[]>([]);
-  const [isBtSupported, setIsBtSupported] = useState(false);
+  // Real, currently-open WebRTC data-channel peers (this is the only mechanism
+  // that actually carries messages between two different devices with no internet).
+  const [connectedOfflinePeerCount, setConnectedOfflinePeerCount] = useState(0);
+  const [offlinePeerStatus, setOfflinePeerStatus] = useState('No offline peers connected yet.');
+  const [localPairingCode, setLocalPairingCode] = useState('');
+  const [remotePairingCode, setRemotePairingCode] = useState('');
+  const [pendingOfferCode, setPendingOfferCode] = useState('');
+  const [pairingQrDataUrl, setPairingQrDataUrl] = useState('');
+  const [qrScanMode, setQrScanMode] = useState<'offer' | 'answer' | null>(null);
+  const [qrScanError, setQrScanError] = useState('');
 
   // Gateway status
   const [isOnlineGateway, setIsOnlineGateway] = useState<boolean>(navigator.onLine);
   const [relayedCount, setRelayedCount] = useState<number>(0);
   const [seenPacketIds] = useState<Set<string>>(() => new Set());
+  const SEEN_PACKET_CAP = 2000;
+  const markPacketSeen = (packetId: string) => {
+    seenPacketIds.add(packetId);
+    if (seenPacketIds.size > SEEN_PACKET_CAP) {
+      const excess = seenPacketIds.size - SEEN_PACKET_CAP;
+      let dropped = 0;
+      for (const key of seenPacketIds) {
+        if (dropped >= excess) break;
+        seenPacketIds.delete(key);
+        dropped += 1;
+      }
+    }
+  };
 
   // Form states for Goods & Services creation
   const [gsType, setGsType] = useState<'request' | 'offer'>('request');
@@ -149,21 +201,27 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
   const [gsDesc, setGsDesc] = useState('');
 
   // Device unique identifier for relay paths
-  const deviceIdRef = useRef<string>(
-    `node-${profile?.display_name ? profile.display_name.toLowerCase().replace(/\s+/g, '-') : 'varkari'}-${Math.random().toString(36).slice(2, 6)}`
-  );
+  const deviceIdRef = useRef<string>(getOrCreateDeviceId(profile?.display_name));
 
   // BroadcastChannel & Supabase Realtime for cross-device & local mesh routing
   const meshChannelRef = useRef<BroadcastChannel | null>(null);
   const realtimeChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const offlinePeerConnectionsRef = useRef<RTCPeerConnection[]>([]);
+  const offlineDataChannelsRef = useRef<RTCDataChannel[]>([]);
+  // The connection created by "Create offline pairing code" (the offerer side),
+  // kept explicitly so accepting an answer targets the right connection instead
+  // of guessing "whichever was created most recently".
+  const pendingOfferConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const meshPacketHandlerRef = useRef<((packet: MeshPacket) => void) | null>(null);
   const pitchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const qrVideoRef = useRef<HTMLVideoElement | null>(null);
+  const qrScanStreamRef = useRef<MediaStream | null>(null);
+  const qrScanRafRef = useRef<number | null>(null);
 
   // State for nearby active SOS alerts triggered by other Varkaris
   const [nearbySosAlerts, setNearbySosAlerts] = useState<SosAlert[]>([]);
 
   useEffect(() => {
-    setIsBtSupported('bluetooth' in navigator);
-
     void Promise.all([
       getMeshMessages().then(setMeshMessages),
       getMeshNews().then((items) => items.length && setMeshNews(items)),
@@ -180,15 +238,9 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    const processIncomingPacket = (packet: {
-      type: string;
-      payload: unknown;
-      packetId: string;
-      hopCount: number;
-      relayPath: string[];
-    }) => {
+    const processIncomingPacket = (packet: MeshPacket) => {
       if (!packet?.packetId || seenPacketIds.has(packet.packetId)) return;
-      seenPacketIds.add(packet.packetId);
+      markPacketSeen(packet.packetId);
 
       const currentHop = (packet.hopCount || 0) + 1;
       const currentPath = [...(packet.relayPath || []), deviceIdRef.current];
@@ -204,10 +256,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         void saveMeshMessage(updatedMsg);
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: updatedMsg.hop_count,
             relayPath: updatedMsg.relay_path
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
 
@@ -230,10 +286,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         onSosCreated?.(updatedAlert);
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: updatedAlert.hop_count,
             relayPath: updatedAlert.relay_path
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
 
@@ -255,10 +315,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         setNearbySosAlerts((prev) => prev.map((a) => (a.id === alert.id ? updatedAlert : a)));
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: currentHop,
             relayPath: currentPath
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
       } else if (packet.type === 'RESOLVE_SOS_ALERT') {
@@ -270,10 +334,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         setNearbySosAlerts((prev) => prev.filter((a) => a.id !== alert.id));
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: currentHop,
             relayPath: currentPath
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
       } else if (packet.type === 'NEW_NEWS_BROADCAST') {
@@ -286,10 +354,14 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         void saveMeshNews(updatedNews);
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: currentHop,
             relayPath: currentPath
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
       } else if (packet.type === 'NEW_GOODS_SERVICE') {
@@ -302,14 +374,19 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         void saveMeshGoodsService(updatedItem);
 
         if (currentHop < 10) {
-          meshChannelRef.current?.postMessage({
+          const relayedPacket = {
             ...packet,
             hopCount: currentHop,
             relayPath: currentPath
+          };
+          meshChannelRef.current?.postMessage(relayedPacket);
+          offlineDataChannelsRef.current.forEach((channel) => {
+            if (channel.readyState === 'open') channel.send(JSON.stringify(relayedPacket));
           });
         }
       }
     };
+    meshPacketHandlerRef.current = processIncomingPacket;
 
     // Initialize local BroadcastChannel (same device / tabs)
     if ('BroadcastChannel' in window) {
@@ -338,6 +415,11 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       window.removeEventListener('offline', handleOffline);
       meshChannelRef.current?.close();
       if (realtimeChannelRef.current) void supabase.removeChannel(realtimeChannelRef.current);
+      offlineDataChannelsRef.current.forEach((channel) => channel.close());
+      offlinePeerConnectionsRef.current.forEach((connection) => connection.close());
+      offlineDataChannelsRef.current = [];
+      offlinePeerConnectionsRef.current = [];
+      meshPacketHandlerRef.current = null;
       stopSiren();
     };
   }, []);
@@ -352,6 +434,88 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
     }
     return () => clearInterval(interval);
   }, [isStrobeActive]);
+
+  // Turn the current WebRTC pairing code (offer or answer) into a QR image.
+  // Typing/copy-pasting a raw SDP blob on a phone is unusable in practice;
+  // scanning a QR code with the camera is the only realistic phone UX for this.
+  useEffect(() => {
+    if (!localPairingCode) {
+      setPairingQrDataUrl('');
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(localPairingCode, { errorCorrectionLevel: 'M', margin: 1, width: 260 })
+      .then((url) => {
+        if (!cancelled) setPairingQrDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setPairingQrDataUrl('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [localPairingCode]);
+
+  const stopQrScan = () => {
+    if (qrScanRafRef.current) cancelAnimationFrame(qrScanRafRef.current);
+    qrScanRafRef.current = null;
+    qrScanStreamRef.current?.getTracks().forEach((track) => track.stop());
+    qrScanStreamRef.current = null;
+    if (qrVideoRef.current) qrVideoRef.current.srcObject = null;
+    setQrScanMode(null);
+  };
+
+  // Opens the rear camera and decodes QR frames until it finds one, then
+  // fills the offer/answer textarea automatically. This is what makes the
+  // WebRTC pairing flow above actually usable on a phone.
+  const startQrScan = async (mode: 'offer' | 'answer') => {
+    setQrScanError('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setQrScanError('Camera access is not available in this browser.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      qrScanStreamRef.current = stream;
+      setQrScanMode(mode);
+
+      requestAnimationFrame(() => {
+        const video = qrVideoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        void video.play();
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        const scanFrame = () => {
+          if (!qrVideoRef.current) return;
+          if (video.readyState < video.HAVE_ENOUGH_DATA) {
+            qrScanRafRef.current = requestAnimationFrame(scanFrame);
+            return;
+          }
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx?.getImageData(0, 0, canvas.width, canvas.height);
+          const code = imageData ? jsQR(imageData.data, imageData.width, imageData.height) : null;
+          if (code?.data) {
+            if (mode === 'offer') setRemotePairingCode(code.data);
+            else setPendingOfferCode(code.data);
+            stopQrScan();
+            return;
+          }
+          qrScanRafRef.current = requestAnimationFrame(scanFrame);
+        };
+        qrScanRafRef.current = requestAnimationFrame(scanFrame);
+      });
+    } catch (err) {
+      setQrScanError(err instanceof Error ? err.message : 'Camera access denied or unavailable.');
+      setQrScanMode(null);
+    }
+  };
+
+  useEffect(() => () => stopQrScan(), []);
 
   // Sync Gateway Node: Upload outward mesh messages & download outer world news/services to broadcast to mesh
   const syncGatewayUplinkAndDownlink = async () => {
@@ -511,7 +675,12 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
     // 1. Local BroadcastChannel (same browser / tabs)
     meshChannelRef.current?.postMessage(packet);
 
-    // 2. Realtime Channel (Cross-device across Wi-Fi / Internet)
+    // 2. Direct offline peer links created after a user gesture and pairing-code exchange
+    offlineDataChannelsRef.current.forEach((channel) => {
+      if (channel.readyState === 'open') channel.send(JSON.stringify(packet));
+    });
+
+    // 3. Realtime Channel (Cross-device across Wi-Fi / Internet)
     if (realtimeChannelRef.current) {
       void realtimeChannelRef.current.send({
         type: 'broadcast',
@@ -533,7 +702,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
 
     const sosPayload: SosAlert = {
       member_id: currentMemberId || `guest-${Date.now()}`,
-      node_id: nearestNodeId || nodes[0]?.id || 'dehu-node',
+      node_id: nearestNodeId || nodes[0]?.id || `manual-${deviceIdRef.current}`,
       lat,
       lng,
       accuracy,
@@ -557,7 +726,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       setActiveSosAlert(finalAlert);
       onSosCreated?.(finalAlert);
 
-      seenPacketIds.add(packetId);
+      markPacketSeen(packetId);
       broadcastMeshPacket('NEW_SOS_ALERT', finalAlert, packetId);
 
       // Automatic high-priority multi-hop chat packet
@@ -656,7 +825,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       relay_path: [deviceIdRef.current]
     };
 
-    seenPacketIds.add(packetId);
+    markPacketSeen(packetId);
     setMeshMessages((prev) => [msg, ...prev]);
     await saveMeshMessage(msg);
     if (!textToSend) setChatText('');
@@ -689,7 +858,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
       hop_count: 0
     };
 
-    seenPacketIds.add(packetId);
+    markPacketSeen(packetId);
     setGoodsServices((prev) => [item, ...prev]);
     await saveMeshGoodsService(item);
     setGsTitle('');
@@ -699,33 +868,153 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
     broadcastMeshPacket('NEW_GOODS_SERVICE', item, packetId);
   };
 
-  // Web Bluetooth Scan & Pair for Offline Direct Mesh
-  const handleBluetoothScan = async () => {
-    const nav = navigator as unknown as {
-      bluetooth?: { requestDevice: (options: unknown) => Promise<{ name?: string; id: string }> };
+  const waitForIceGatheringComplete = (connection: RTCPeerConnection) =>
+    new Promise<void>((resolve) => {
+      if (connection.iceGatheringState === 'complete') {
+        resolve();
+        return;
+      }
+
+      const timeout = window.setTimeout(() => {
+        connection.removeEventListener('icegatheringstatechange', handleChange);
+        resolve();
+      }, 5000);
+
+      function handleChange() {
+        if (connection.iceGatheringState === 'complete') {
+          window.clearTimeout(timeout);
+          connection.removeEventListener('icegatheringstatechange', handleChange);
+          resolve();
+        }
+      }
+
+      connection.addEventListener('icegatheringstatechange', handleChange);
+    });
+
+  // Catch a newly-connected peer up on what this device already knows, so
+  // "store & forward" is real: a phone that pairs late still receives the
+  // active SOS, recent chat, news and goods/services instead of only future ones.
+  const sendBacklogToChannel = (channel: RTCDataChannel) => {
+    const trySend = (type: string, payload: unknown, packetId: string, hopCount: number, relayPath: string[]) => {
+      if (channel.readyState !== 'open') return;
+      try {
+        channel.send(JSON.stringify({ type, payload, packetId, hopCount, relayPath }));
+      } catch (err) {
+        console.warn('Backlog send failed:', err);
+      }
     };
-    if (!nav.bluetooth) {
-      setBtStatus('Web Bluetooth is not supported in this browser. Local Broadcast Channel active.');
-      return;
+
+    if (activeSosAlert?.id) {
+      trySend(
+        'NEW_SOS_ALERT',
+        activeSosAlert,
+        `backlog-sos-${activeSosAlert.id}-${deviceIdRef.current}`,
+        activeSosAlert.hop_count ?? 0,
+        activeSosAlert.relay_path ?? [deviceIdRef.current]
+      );
     }
+    nearbySosAlerts.slice(0, 20).forEach((alert) => {
+      trySend(
+        'NEW_SOS_ALERT',
+        alert,
+        `backlog-sos-${alert.id}-${deviceIdRef.current}`,
+        alert.hop_count ?? 0,
+        alert.relay_path ?? [deviceIdRef.current]
+      );
+    });
+    meshMessages.slice(0, 50).forEach((msg) => {
+      trySend(
+        'NEW_MESH_MESSAGE',
+        msg,
+        `backlog-msg-${msg.id}-${deviceIdRef.current}`,
+        msg.hop_count ?? 0,
+        msg.relay_path ?? [deviceIdRef.current]
+      );
+    });
+    meshNews.slice(0, 20).forEach((news) => {
+      trySend('NEW_NEWS_BROADCAST', news, `backlog-news-${news.id}-${deviceIdRef.current}`, news.hop_count ?? 0, [deviceIdRef.current]);
+    });
+    goodsServices.slice(0, 20).forEach((gs) => {
+      trySend('NEW_GOODS_SERVICE', gs, `backlog-gs-${gs.id}-${deviceIdRef.current}`, gs.hop_count ?? 0, [deviceIdRef.current]);
+    });
+  };
 
-    setBtStatus('Scanning for nearby Bluetooth Varkari devices...');
+  const registerOfflineDataChannel = (channel: RTCDataChannel) => {
+    channel.onopen = () => {
+      setConnectedOfflinePeerCount(offlineDataChannelsRef.current.filter((c) => c.readyState === 'open').length + 1);
+      setOfflinePeerStatus('Offline peer connected. Catching them up and sending messages directly, no internet needed.');
+      sendBacklogToChannel(channel);
+    };
+    channel.onclose = () => {
+      offlineDataChannelsRef.current = offlineDataChannelsRef.current.filter((existing) => existing !== channel);
+      const remaining = offlineDataChannelsRef.current.filter((c) => c.readyState === 'open').length;
+      setConnectedOfflinePeerCount(remaining);
+      setOfflinePeerStatus(remaining > 0 ? 'Offline peer disconnected; other peers remain connected.' : 'No offline peers connected yet.');
+    };
+    channel.onmessage = (event) => {
+      try {
+        meshPacketHandlerRef.current?.(JSON.parse(event.data));
+      } catch (err) {
+        console.warn('Unable to read offline mesh packet:', err);
+      }
+    };
+    offlineDataChannelsRef.current.push(channel);
+  };
+
+  const createOfflinePeerConnection = () => {
+    const connection = new RTCPeerConnection({ iceServers: [] });
+    connection.ondatachannel = (event) => registerOfflineDataChannel(event.channel);
+    connection.onconnectionstatechange = () => {
+      setOfflinePeerStatus(`Offline peer connection: ${connection.connectionState}`);
+      if (['closed', 'failed', 'disconnected'].includes(connection.connectionState)) {
+        offlinePeerConnectionsRef.current = offlinePeerConnectionsRef.current.filter((c) => c !== connection);
+        if (pendingOfferConnectionRef.current === connection) pendingOfferConnectionRef.current = null;
+      }
+    };
+    offlinePeerConnectionsRef.current.push(connection);
+    return connection;
+  };
+
+  const handleCreateOfflineOffer = async () => {
     try {
-      const device = await nav.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: ['battery_service', 'device_information']
-      });
-
-      if (device) {
-        setConnectedBtDevices((prev) => Array.from(new Set([...prev, device.name || device.id])));
-        setBtStatus(`Connected to Bluetooth node: ${device.name || 'Varkari Device'}`);
-      }
+      const connection = createOfflinePeerConnection();
+      pendingOfferConnectionRef.current = connection;
+      const channel = connection.createDataChannel('vari-mitra-offline-mesh');
+      registerOfflineDataChannel(channel);
+      await connection.setLocalDescription(await connection.createOffer());
+      await waitForIceGatheringComplete(connection);
+      setLocalPairingCode(JSON.stringify(connection.localDescription));
+      setOfflinePeerStatus('Offer ready. Let the nearby device scan the QR code below, then scan their answer back.');
     } catch (err) {
-      if (err instanceof Error && err.name !== 'NotFoundError') {
-        setBtStatus(`Bluetooth scan info: ${err.message}`);
-      } else {
-        setBtStatus('Bluetooth scan cancelled or completed.');
+      setOfflinePeerStatus(`Could not create offline offer: ${err instanceof Error ? err.message : 'unknown error'}`);
+    }
+  };
+
+  const handleJoinOfflineOffer = async () => {
+    try {
+      const connection = createOfflinePeerConnection();
+      await connection.setRemoteDescription(JSON.parse(remotePairingCode));
+      await connection.setLocalDescription(await connection.createAnswer());
+      await waitForIceGatheringComplete(connection);
+      setLocalPairingCode(JSON.stringify(connection.localDescription));
+      setOfflinePeerStatus('Answer ready. Show this QR code back to the first device to finish pairing.');
+    } catch (err) {
+      setOfflinePeerStatus(`Could not join offline offer: ${err instanceof Error ? err.message : 'check the scanned/pasted code'}`);
+    }
+  };
+
+  const handleAcceptOfflineAnswer = async () => {
+    try {
+      const connection = pendingOfferConnectionRef.current;
+      if (!connection) {
+        setOfflinePeerStatus('Create an offer on this device first, then scan the other device\u2019s answer.');
+        return;
       }
+      await connection.setRemoteDescription(JSON.parse(pendingOfferCode));
+      setOfflinePeerStatus('Answer accepted. Waiting for the direct connection to open...');
+      pendingOfferConnectionRef.current = null;
+    } catch (err) {
+      setOfflinePeerStatus(`Could not accept offline answer: ${err instanceof Error ? err.message : 'check the scanned/pasted code'}`);
     }
   };
 
@@ -1618,7 +1907,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
 
               <div className="p-3 rounded-2xl bg-amber-600 text-center shadow-lg border border-amber-400/40">
                 <div>📡 Relay Device B</div>
-                <div className="text-[10px] opacity-80">(Hop #1 - Bluetooth/Mesh)</div>
+                <div className="text-[10px] opacity-80">(Hop #1 - WebRTC Relay)</div>
               </div>
 
               <div className="text-xl text-stone-500 font-mono">➔</div>
@@ -1641,28 +1930,132 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void handleBluetoothScan()}
-              className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow transition flex items-center gap-1.5"
-            >
-              <span>📱</span>
-              <span>{lang === 'mr' ? 'जवळील ब्लूटूथ मेश नोड शोधा' : 'Scan Nearby Bluetooth Peers'}</span>
-            </button>
-            <span className="text-xs text-stone-500 font-mono italic">{btStatus}</span>
+          <div className="p-4 rounded-2xl bg-stone-800/70 border border-stone-700 space-y-3">
+            <div>
+              <h4 className="text-xs font-extrabold uppercase text-purple-300">
+                {lang === 'mr' ? 'इंटरनेटशिवाय थेट संदेश जोडणी' : 'Direct offline text link'}
+              </h4>
+              <p className="mt-1 text-[11px] text-stone-400">
+                {lang === 'mr'
+                  ? 'दोन्ही उपकरणे जवळ असताना, वापरकर्त्याच्या कृतीनंतर ब्राउझर WebRTC स्थानिक peer कनेक्शन तयार करतो. कोणताही STUN/TURN सर्व्हर किंवा हार्डकोड गेटवे वापरला जात नाही — हीच खरी ऑफलाईन डिव्हाइस-टू-डिव्हाइस जोडणी आहे.'
+                  : 'This QR pairing is the actual offline device-to-device link — the only mechanism here that carries messages between two different phones with zero internet. Everything else on this screen (tabs syncing, the gateway sync) either only works within one browser or needs one side to be online.'}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => void handleCreateOfflineOffer()}
+                  className="w-full px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow transition"
+                >
+                  {lang === 'mr' ? '१. जोडणी कोड तयार करा (डिव्हाइस A)' : '1. Create pairing code (Device A)'}
+                </button>
+                {pairingQrDataUrl ? (
+                  <div className="flex flex-col items-center gap-1.5 rounded-xl border border-stone-700 bg-stone-950 p-3">
+                    <img src={pairingQrDataUrl} alt="Pairing QR code" className="h-40 w-40 rounded-lg bg-white p-1" />
+                    <p className="text-[10px] text-stone-400 text-center">
+                      {lang === 'mr' ? 'दुसऱ्या डिव्हाइसच्या कॅमेऱ्याने हा कोड स्कॅन करा' : 'Have the other device scan this with its camera'}
+                    </p>
+                  </div>
+                ) : (
+                  <textarea
+                    readOnly
+                    value={localPairingCode}
+                    placeholder={lang === 'mr' ? 'इथे तुमचा शेअर करण्याचा कोड दिसेल' : 'Your code to share appears here (or as a QR above)'}
+                    className="h-20 w-full rounded-xl border border-stone-700 bg-stone-950 p-2 text-[10px] text-stone-200"
+                  />
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => void startQrScan('offer')}
+                  className="w-full px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow transition flex items-center justify-center gap-1.5"
+                >
+                  <span>📷</span>
+                  <span>{lang === 'mr' ? '२. Offer कोड स्कॅन करा (डिव्हाइस B)' : '2. Scan offer code (Device B)'}</span>
+                </button>
+                <textarea
+                  value={remotePairingCode}
+                  onChange={(e) => setRemotePairingCode(e.target.value)}
+                  placeholder={lang === 'mr' ? 'किंवा इथे offer कोड पेस्ट करा' : 'Or paste the offer code here manually'}
+                  className="h-14 w-full rounded-xl border border-stone-700 bg-stone-950 p-2 text-[10px] text-stone-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleJoinOfflineOffer()}
+                  disabled={!remotePairingCode}
+                  className="w-full px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs font-bold shadow transition"
+                >
+                  {lang === 'mr' ? 'Answer तयार करा' : 'Create answer'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void startQrScan('answer')}
+                  className="w-full px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow transition flex items-center justify-center gap-1.5"
+                >
+                  <span>📷</span>
+                  <span>{lang === 'mr' ? '३. Answer कोड स्कॅन करा (डिव्हाइस A)' : '3. Scan answer code (Device A)'}</span>
+                </button>
+                <textarea
+                  value={pendingOfferCode}
+                  onChange={(e) => setPendingOfferCode(e.target.value)}
+                  placeholder={lang === 'mr' ? 'किंवा इथे answer कोड पेस्ट करा' : 'Or paste the answer code here manually'}
+                  className="h-14 w-full rounded-xl border border-stone-700 bg-stone-950 p-2 text-[10px] text-stone-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleAcceptOfflineAnswer()}
+                  disabled={!pendingOfferCode}
+                  className="w-full px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold shadow transition"
+                >
+                  {lang === 'mr' ? 'Answer स्वीकारा' : 'Accept answer'}
+                </button>
+              </div>
+            </div>
+
+            {qrScanMode && (
+              <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/90 p-4">
+                <p className="text-sm font-bold text-white">
+                  {lang === 'mr' ? 'कॅमेऱ्यासमोर QR कोड धरा' : `Point the camera at the ${qrScanMode} QR code`}
+                </p>
+                <video ref={qrVideoRef} playsInline muted className="w-full max-w-sm rounded-xl border border-stone-700" />
+                {qrScanError && <p className="text-xs text-red-400">{qrScanError}</p>}
+                <button
+                  type="button"
+                  onClick={stopQrScan}
+                  className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-white text-xs font-bold"
+                >
+                  {lang === 'mr' ? 'रद्द करा' : 'Cancel'}
+                </button>
+              </div>
+            )}
+
+            <p className="text-xs text-stone-300 font-mono">{offlinePeerStatus}</p>
           </div>
 
-          {connectedBtDevices.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <span className="text-xs font-bold text-stone-400">{lang === 'mr' ? 'जोडलेले सहकारी:' : 'Connected Peers:'}</span>
-              {connectedBtDevices.map((dev, idx) => (
-                <span key={idx} className="bg-emerald-950 text-emerald-200 px-2.5 py-0.5 rounded-full text-xs font-bold">
-                  🔗 {dev}
-                </span>
-              ))}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`h-2.5 w-2.5 rounded-full ${connectedOfflinePeerCount > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-stone-600'}`}
+            />
+            <span className="text-xs font-bold text-stone-300">
+              {connectedOfflinePeerCount > 0
+                ? lang === 'mr'
+                  ? `${connectedOfflinePeerCount} थेट ऑफलाईन पिअर कनेक्ट झाले`
+                  : `${connectedOfflinePeerCount} direct offline peer${connectedOfflinePeerCount === 1 ? '' : 's'} connected`
+                : lang === 'mr'
+                ? 'अद्याप कोणतेही थेट पिअर कनेक्ट झालेले नाहीत'
+                : 'No direct peers connected yet — pair using the QR flow above'}
+            </span>
+          </div>
+          <p className="text-[11px] text-stone-500">
+            {lang === 'mr'
+              ? 'टीप: वेब पेज ब्लूटूथवरून चॅट संदेश पाठवू शकत नाही — ब्राउझर फक्त डिव्हाइस शोधू शकतो, GATT सर्व्हर तयार करू शकत नाही. तसेच टॅब-सिंक (BroadcastChannel) फक्त याच डिव्हाइसवरील एकाच ब्राउझरच्या टॅब्समध्ये काम करते, दुसऱ्या डिव्हाइसपर्यंत नाही.'
+              : 'Note: a website cannot send chat data over Bluetooth — the browser can only discover nearby devices, not run a GATT server, so Bluetooth can\u2019t carry messages here. The tab-sync channel above also only syncs multiple tabs on this same device/browser, not a different phone — QR-paired WebRTC is what actually crosses devices.'}
+          </p>
         </div>
       )}
 
