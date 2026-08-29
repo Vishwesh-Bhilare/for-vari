@@ -228,69 +228,48 @@ export function AdminLogin({
     setBroadcasting(true);
     setMessage('');
 
-    try {
-      const expiresIso = broadcastExpiresAt ? new Date(broadcastExpiresAt).toISOString() : null;
-      let publishedBroadcast: BroadcastMessage | null = null;
+    const expiresIso = broadcastExpiresAt ? new Date(broadcastExpiresAt).toISOString() : null;
+    const localBroadcast: BroadcastMessage = {
+      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}`,
+      message: text,
+      created_by: userId || undefined,
+      expires_at: expiresIso || undefined,
+      active: true,
+      created_at: new Date().toISOString()
+    };
 
-      if (isSupabaseConfigured) {
+    // 1. Instantly update UI and clear input (0ms delay)
+    onBroadcastCreated?.(localBroadcast);
+    setBroadcastText('');
+    setBroadcastExpiresAt('');
+    setBroadcasting(false);
+    setMessage('✓ Broadcast published to marquee display.');
+
+    // 2. Save to local IndexedDB storage
+    void cacheRows('broadcast_messages', [localBroadcast]);
+
+    // 3. Background push to Supabase backend (non-blocking)
+    if (isSupabaseConfigured) {
+      void (async () => {
         try {
-          const insertTask = (async () => {
-            try {
-              const payload = {
-                message: text,
-                ...(userId ? { created_by: userId } : {}),
-                expires_at: expiresIso,
-                active: true
-              };
-              const { data, error } = await supabase.from('broadcast_messages').insert(payload).select('*');
-              if (!error && data && data.length > 0) {
-                return data[0] as BroadcastMessage;
-              }
-              const { data: data2, error: error2 } = await supabase.from('broadcast_messages').insert({
-                message: text,
-                expires_at: expiresIso,
-                active: true
-              }).select('*');
-              if (!error2 && data2 && data2.length > 0) {
-                return data2[0] as BroadcastMessage;
-              }
-            } catch (err) {
-              console.warn('Supabase insert task error:', err);
-            }
-            return null;
-          })();
-
-          const timeoutTask = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
-          publishedBroadcast = await Promise.race([insertTask, timeoutTask]);
+          const payload = {
+            message: text,
+            ...(userId ? { created_by: userId } : {}),
+            expires_at: expiresIso,
+            active: true
+          };
+          const { error } = await supabase.from('broadcast_messages').insert(payload);
+          if (error) {
+            await supabase.from('broadcast_messages').insert({
+              message: text,
+              expires_at: expiresIso,
+              active: true
+            });
+          }
         } catch (err) {
-          console.warn('Supabase broadcast race error:', err);
+          console.warn('[broadcast] Background Supabase sync failed:', err);
         }
-      }
-
-      const broadcastRecord: BroadcastMessage = publishedBroadcast ?? {
-        id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}`,
-        message: text,
-        created_by: userId || undefined,
-        expires_at: expiresIso || undefined,
-        active: true,
-        created_at: new Date().toISOString()
-      };
-
-      try {
-        await cacheRows('broadcast_messages', [broadcastRecord]);
-      } catch (e) {
-        console.warn('Local cache broadcast write error:', e);
-      }
-
-      onBroadcastCreated?.(broadcastRecord);
-      setBroadcastText('');
-      setBroadcastExpiresAt('');
-      setMessage('✓ Broadcast published to marquee display.');
-    } catch (error) {
-      console.error('sendBroadcast failed:', error);
-      setMessage(error instanceof Error ? error.message : 'Broadcast failed.');
-    } finally {
-      setBroadcasting(false);
+      })();
     }
   }
 
