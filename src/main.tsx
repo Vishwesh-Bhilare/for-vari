@@ -159,6 +159,7 @@ function App() {
   const [registeredProfileCount, setRegisteredProfileCount] = useState(0);
   const [familyProfiles, setFamilyProfiles] = useState<Profile[]>([]);
   const [liveLocations, setLiveLocations] = useState<LiveLocation[]>([]);
+  const [locationError, setLocationError] = useState('');
   const [groupAction, setGroupAction] = useState<'create' | 'join'>('create');
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string }>();
   const [activePanel, setActivePanel] = useState<'lending' | 'lost' | 'volunteer'>('lending');
@@ -194,27 +195,47 @@ function App() {
 
   useEffect(() => {
     if (!session || !currentMemberId || !position || !isSupabaseConfigured) return;
-    const publish = () => void supabase.from('live_locations').upsert({
-      user_id: currentMemberId,
-      lat: position.coords.latitude,
-      lng: position.coords.longitude,
-      accuracy: position.coords.accuracy,
-      updated_at: new Date().toISOString()
-    });
+    const publish = async () => {
+      const { error } = await supabase.from('live_locations').upsert({
+        user_id: currentMemberId,
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        updated_at: new Date().toISOString()
+      });
+      if (error) setLocationError(error.message);
+    };
     publish();
     const interval = window.setInterval(publish, 30_000);
     return () => window.clearInterval(interval);
   }, [session, currentMemberId, position]);
 
   useEffect(() => {
-    if (!session || !isSupabaseConfigured) { setLiveLocations([]); return; }
-    const loadLocations = () => void supabase.from('live_locations').select('user_id, lat, lng, accuracy, updated_at').then(({ data }) => setLiveLocations((data ?? []) as LiveLocation[]));
+    if (!session || !isSupabaseConfigured) { setLiveLocations([]); setLocationError(''); return; }
+    let active = true;
+    const loadLocations = async () => {
+      const { data, error } = await supabase.from('live_locations').select('user_id, lat, lng, accuracy, updated_at');
+      if (!active) return;
+      if (error) {
+        setLocationError(error.message);
+        return;
+      }
+      setLocationError('');
+      setLiveLocations((data ?? []) as LiveLocation[]);
+    };
     loadLocations();
     const channel = supabase.channel(`live-locations-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'live_locations' }, loadLocations)
       .subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, [session]);
+    // Refresh periodically as a fallback when a network or Realtime reconnect
+    // misses a location update.
+    const interval = window.setInterval(loadLocations, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      void supabase.removeChannel(channel);
+    };
+  }, [session, profile?.group_id]);
 
   useEffect(() => {
     void supabase.from('nodes').select('*').order('sequence_order').then(({ data }) => {
@@ -265,13 +286,15 @@ function App() {
         // prevents a stale/cached response from showing another group's dot.
         const isGroupMember = familyProfiles.some((member) => member.id === live.user_id);
         if (!mine && role !== 'admin' && !isGroupMember) return;
+        const memberName = familyProfiles.find((member) => member.id === live.user_id)?.display_name || 'Group member';
         L.circleMarker([live.lat, live.lng], { radius: mine ? 8 : 5, color: mine ? '#1d4ed8' : '#7c3aed', fillColor: mine ? '#60a5fa' : '#c4b5fd', fillOpacity: 1 })
-          .bindPopup(mine ? 'Your live location' : role === 'admin' ? 'Pilgrim live location' : 'Group member live location')
+          .bindPopup(mine ? 'Your live location' : role === 'admin' ? 'Pilgrim live location' : `${memberName}'s live location`)
           .addTo(markerLayerRef.current!);
       });
     }
     routeRef.current?.remove();
     routeRef.current = L.polyline(nodes.map((n) => [n.lat, n.lng] as L.LatLngTuple), { color: '#ea580c', weight: 4 }).addTo(mapRef.current);
+    window.requestAnimationFrame(() => mapRef.current?.invalidateSize());
   }, [view, nodes, reports, liveLocations, session, currentMemberId, role, familyProfiles]);
 
   const latestReports = useMemo(() => nodes.map((node) => ({ node, density: reports.find((r) => r.node_id === node.id)?.density ?? 'unknown' as Density })), [nodes, reports]);
@@ -290,13 +313,18 @@ function App() {
   const recentActivityItems = useMemo(() => items.filter((item) => !['open', 'accepted'].includes(item.status ?? 'open') || isExpiredOpenRequest(item)), [items]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !familyCode.trim()) { setFamilyProfiles([]); return; }
-    void supabase.from('groups').select('id').eq('group_code', familyCode.trim()).maybeSingle().then(async ({ data }) => {
-      if (!data?.id) { setFamilyProfiles([]); return; }
-      const { data: profiles } = await supabase.from('profiles').select('*').eq('group_id', data.id);
-      setFamilyProfiles((profiles ?? []) as Profile[]);
+    if (!isSupabaseConfigured || !profile?.group_id) { setFamilyProfiles([]); return; }
+    let active = true;
+    void supabase.from('profiles').select('*').eq('group_id', profile.group_id).order('display_name').then(({ data, error }) => {
+      if (!active) return;
+      if (error) {
+        setLocationError(error.message);
+        return;
+      }
+      setFamilyProfiles((data ?? []) as Profile[]);
     });
-  }, [familyCode]);
+    return () => { active = false; };
+  }, [profile?.group_id]);
 
   async function reportDensity(density: Density) {
     if (!session) {
@@ -457,7 +485,7 @@ function App() {
         {activeSosCount > 0 && <div className="sticky top-0 z-40 flex items-center justify-between bg-red-600 px-4 py-3 text-white"><span className="flex items-center text-sm font-bold"><span className="mr-2 h-2.5 w-2.5 animate-pulse rounded-full bg-white" />{activeSosCount} active alert{activeSosCount === 1 ? '' : 's'}</span><button onClick={() => changeView('sos_mesh')} className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-bold">View →</button></div>}
         {session && !position && <div className="mx-4 mt-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><span>Share your device location to show your live dot to your group.</span><button onClick={requestLocation} className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white">Allow location</button></div>}
         {!session && <section className="mx-4 mt-4 rounded-2xl bg-stone-950 p-5 text-white lg:mx-4"><h2 className="text-xl font-extrabold">Plan a safer Wari journey</h2><p className="mt-1 text-sm text-stone-300">View the route and crowd density, apply to volunteer, or sign in to coordinate with your pilgrim group.</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={() => setShowAuthModal(true)} className="rounded-xl bg-saffron-600 px-4 py-2 text-sm font-bold">Pilgrim sign in / sign up</button><button onClick={() => setShowApplyModal(true)} className="rounded-xl border border-stone-600 px-4 py-2 text-sm font-bold">Volunteer application</button></div></section>}<div className="lg:grid lg:grid-cols-[2fr_1fr] lg:gap-4 lg:p-4"><div className="space-y-3"><div className="relative mx-4 h-[240px] overflow-hidden rounded-2xl lg:mx-0 lg:h-[400px]"><div id="map" className="h-full w-full bg-cream-100" /><button onClick={() => session ? setShowDensitySheet(true) : setShowAuthModal(true)} className="absolute bottom-3 right-3 min-h-[44px] rounded-xl bg-saffron-600 px-3 py-2 text-xs font-bold text-white shadow-sm">{session ? 'Report density' : 'Sign in to report'}</button></div><div className="flex gap-3 overflow-x-auto px-4 pb-2 scrollbar-hide lg:hidden">{latestReports.map(({node,density}) => <div key={node.id} className={`w-[140px] flex-shrink-0 rounded-2xl border border-cream-200 border-l-4 bg-white p-3 shadow-sm ${density === 'high' ? 'border-l-red-600' : density === 'medium' ? 'border-l-amber-500' : 'border-l-green-600'}`}><p className="truncate text-sm font-extrabold text-stone-900">{node.name}</p><span className={`mt-2 inline-block rounded-full px-2.5 py-1 text-xs font-bold ${density === 'high' ? 'bg-red-50 text-red-700' : density === 'medium' ? 'bg-amber-50 text-amber-700' : density === 'low' ? 'bg-green-50 text-green-600' : 'bg-cream-100 text-stone-500'}`}>{density === 'unknown' ? 'No data' : density}</span></div>)}</div><section className="mx-4 overflow-hidden rounded-2xl border border-cream-200 bg-white lg:mx-0 lg:grid lg:grid-cols-3 lg:gap-4 lg:border-0 lg:bg-transparent">
-          {([['lending','🤝','Peer lending'],['lost','🔎','Lost & found'],['volunteer','🙋','Volunteer application']] as const).map(([key,icon,title]) => <div key={key} className="border-b border-cream-200 last:border-0 lg:rounded-2xl lg:border lg:border-cream-200 lg:bg-white lg:p-4 lg:shadow-sm"><button onClick={() => setActivePanel(key)} className="flex min-h-[48px] w-full items-center justify-between px-4 py-3 lg:pointer-events-none lg:px-0 lg:py-0"><span className="flex items-center gap-2 text-sm font-extrabold text-stone-900"><span>{icon}</span>{title}</span><span className={`text-stone-400 transition-transform duration-200 lg:hidden ${activePanel === key ? 'rotate-180' : ''}`}>⌄</span></button><div className={`overflow-hidden transition-all duration-200 ease-out ${activePanel === key ? 'max-h-[700px]' : 'max-h-0'} lg:max-h-[900px]`}><div className="px-4 pb-4 pt-2 lg:px-0">{key === 'lending' ? <><div className="mb-3 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">{['Water','Food','Torch','Medicine','Blanket','First Aid'].map(chip => <button key={chip} onClick={() => setItemName(chip)} className={`flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${itemName === chip ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>{chip}</button>)}</div><label className="mb-1.5 block text-xs font-semibold text-stone-600">What do you need?</label><input className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none" value={itemName} onChange={e => setItemName(e.target.value)} placeholder="e.g. water bottle, torch..."/><button disabled={Boolean(myActiveRequest)} onClick={() => void requestItem()} className="mt-3 w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-60">Request item</button><div className="mt-3 space-y-2">{sortedPrimaryItems.slice(0,3).map(({item:i},idx) => <div key={i.id ?? idx} className="flex items-center justify-between rounded-xl bg-saffron-50 px-3 py-2"><span className="text-xs font-semibold text-stone-800">{i.item_name}</span>{i.requester_id !== currentMemberId && <button onClick={() => void acceptItem(i)} className="rounded-lg border border-saffron-600 px-2.5 py-1 text-xs font-bold text-saffron-600">Offer</button>}</div>)}</div></> : key === 'lost' ? <GroupPanel session={session} profile={profile} groupAction={groupAction} setGroupAction={setGroupAction} registration={registration} setRegistration={setRegistration} registeredGroup={registeredGroup} familyProfiles={familyProfiles} liveLocations={liveLocations} onSubmit={() => void registerGroup()} /> : <><button onClick={() => setShowApplyModal(true)} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">Apply for Seva ⚡</button>{session ? <VolunteerDashboard session={session} profile={profile} role={role} approved={approved} loading={authLoading || profileLoading} nodes={nodes} sosAlerts={sosAlerts} sightings={sightings} setSosAlerts={setSosAlerts} setSightings={setSightings}/> : <p className="mt-3 text-sm text-stone-500">Sign in to access volunteer features.</p>}</>}</div></div></div>)}
+          {([['lending','🤝','Peer lending'],['lost','🔎','Lost & found'],['volunteer','🙋','Volunteer application']] as const).map(([key,icon,title]) => <div key={key} className="border-b border-cream-200 last:border-0 lg:rounded-2xl lg:border lg:border-cream-200 lg:bg-white lg:p-4 lg:shadow-sm"><button onClick={() => setActivePanel(key)} className="flex min-h-[48px] w-full items-center justify-between px-4 py-3 lg:pointer-events-none lg:px-0 lg:py-0"><span className="flex items-center gap-2 text-sm font-extrabold text-stone-900"><span>{icon}</span>{title}</span><span className={`text-stone-400 transition-transform duration-200 lg:hidden ${activePanel === key ? 'rotate-180' : ''}`}>⌄</span></button><div className={`overflow-hidden transition-all duration-200 ease-out ${activePanel === key ? 'max-h-[700px]' : 'max-h-0'} lg:max-h-[900px]`}><div className="px-4 pb-4 pt-2 lg:px-0">{key === 'lending' ? <><div className="mb-3 flex gap-2 overflow-x-auto pb-2 scrollbar-hide">{['Water','Food','Torch','Medicine','Blanket','First Aid'].map(chip => <button key={chip} onClick={() => setItemName(chip)} className={`flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${itemName === chip ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>{chip}</button>)}</div><label className="mb-1.5 block text-xs font-semibold text-stone-600">What do you need?</label><input className="w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none" value={itemName} onChange={e => setItemName(e.target.value)} placeholder="e.g. water bottle, torch..."/><button disabled={Boolean(myActiveRequest)} onClick={() => void requestItem()} className="mt-3 w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-60">Request item</button><div className="mt-3 space-y-2">{sortedPrimaryItems.slice(0,3).map(({item:i},idx) => <div key={i.id ?? idx} className="flex items-center justify-between rounded-xl bg-saffron-50 px-3 py-2"><span className="text-xs font-semibold text-stone-800">{i.item_name}</span>{i.requester_id !== currentMemberId && <button onClick={() => void acceptItem(i)} className="rounded-lg border border-saffron-600 px-2.5 py-1 text-xs font-bold text-saffron-600">Offer</button>}</div>)}</div></> : key === 'lost' ? <GroupPanel session={session} profile={profile} groupAction={groupAction} setGroupAction={setGroupAction} registration={registration} setRegistration={setRegistration} registeredGroup={registeredGroup} familyProfiles={familyProfiles} liveLocations={liveLocations} locationError={locationError} onSubmit={() => void registerGroup()} /> : <><button onClick={() => setShowApplyModal(true)} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">Apply for Seva ⚡</button>{session ? <VolunteerDashboard session={session} profile={profile} role={role} approved={approved} loading={authLoading || profileLoading} nodes={nodes} sosAlerts={sosAlerts} sightings={sightings} setSosAlerts={setSosAlerts} setSightings={setSightings}/> : <p className="mt-3 text-sm text-stone-500">Sign in to access volunteer features.</p>}</>}</div></div></div>)}
         </section></div><aside className="hidden space-y-3 lg:block"><h2 className="text-base font-extrabold text-stone-900">Crowd density</h2>{latestReports.map(({node,density})=><div key={node.id} className="flex items-center gap-3 rounded-2xl border border-cream-200 bg-white p-3"><span className={`h-3 w-3 rounded-full ${density === 'high' ? 'bg-red-600' : density === 'medium' ? 'bg-amber-500' : 'bg-green-600'}`}/><span className="flex-1 text-sm font-semibold">{node.name}</span><span className="rounded-full bg-cream-100 px-2 py-1 text-xs font-bold capitalize">{density}</span></div>)}<button onClick={() => setShowDensitySheet(true)} className="w-full min-h-[48px] rounded-xl border-2 border-saffron-600 py-3 text-sm font-bold text-saffron-600">Report density</button></aside></div>
         {showApplyModal && <div className="fixed inset-0 z-[2000] flex items-end justify-center bg-stone-900/60 backdrop-blur-sm sm:items-center"><div className="relative w-full rounded-t-3xl bg-white px-5 pt-2 pb-8 shadow-2xl sm:max-w-lg sm:rounded-3xl sm:p-7"><div className="mx-auto mb-5 h-1.5 w-12 rounded-full bg-stone-200 sm:hidden"/><button onClick={() => setShowApplyModal(false)} className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-stone-400">✕</button><h3 className="mb-5 text-xl font-extrabold">Volunteer application</h3><VolunteerApplication userId={currentMemberId} application={application} nodes={nodes} onRequireAuth={() => setShowAuthModal(true)}/></div></div>}
         {showDensitySheet && <><div className="fixed inset-0 z-40 bg-stone-900/40" onClick={() => setShowDensitySheet(false)}/><div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 shadow-2xl transition-transform duration-300 ease-out"><div className="mx-auto mb-4 h-1 w-12 rounded-full bg-stone-200"/><h2 className="text-base font-extrabold">Report crowd density</h2><select className="mt-4 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" value={selectedNode} onChange={e=>setSelectedNode(e.target.value)}>{nodes.map(n=><option key={n.id} value={n.id}>{n.name}</option>)}</select><div className="mt-3 flex gap-2">{(['low','medium','high'] as Density[]).map(d=><button key={d} onClick={() => { void reportDensity(d); setShowDensitySheet(false); }} className={`flex min-h-[80px] flex-1 flex-col items-center justify-center rounded-xl border-2 text-sm font-bold capitalize ${d === 'low' ? 'border-green-500 bg-green-50 text-green-700' : d === 'medium' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-red-500 bg-red-50 text-red-700'}`}>{d === 'low' ? '🟢' : d === 'medium' ? '🟡' : '🔴'}<span>{d}</span></button>)}</div></div></>}
@@ -468,7 +496,7 @@ function App() {
   );
 }
 
-function GroupPanel({ session, profile, groupAction, setGroupAction, registration, setRegistration, registeredGroup, familyProfiles, liveLocations, onSubmit }: { session: ReturnType<typeof useSession>['session']; profile: Profile | null; groupAction: 'create' | 'join'; setGroupAction: React.Dispatch<React.SetStateAction<'create' | 'join'>>; registration: Registration; setRegistration: React.Dispatch<React.SetStateAction<Registration>>; registeredGroup: string; familyProfiles: Profile[]; liveLocations: LiveLocation[]; onSubmit: () => void }) {
+function GroupPanel({ session, profile, groupAction, setGroupAction, registration, setRegistration, registeredGroup, familyProfiles, liveLocations, locationError, onSubmit }: { session: ReturnType<typeof useSession>['session']; profile: Profile | null; groupAction: 'create' | 'join'; setGroupAction: React.Dispatch<React.SetStateAction<'create' | 'join'>>; registration: Registration; setRegistration: React.Dispatch<React.SetStateAction<Registration>>; registeredGroup: string; familyProfiles: Profile[]; liveLocations: LiveLocation[]; locationError: string; onSubmit: () => void }) {
   if (!session) return <div className="rounded-xl bg-saffron-50 p-3 text-sm text-stone-600">Sign in as a pilgrim to create or join a group and share live locations.</div>;
   const isInGroup = Boolean(profile?.group_id && registeredGroup);
   const sharingLocation = new Set(liveLocations.map((location) => location.user_id));
@@ -476,7 +504,8 @@ function GroupPanel({ session, profile, groupAction, setGroupAction, registratio
     <div className="rounded-xl bg-green-50 p-3 text-xs text-green-800"><p className="font-extrabold">You are in group {registeredGroup}</p><p className="mt-1">Purple dots on the map show members currently sharing their location.</p></div>
     <div className="mt-3 flex items-center justify-between"><h3 className="text-sm font-extrabold text-stone-900">Group members</h3><span className="rounded-full bg-saffron-50 px-2 py-1 text-xs font-bold text-saffron-700">{familyProfiles.length}</span></div>
     <ul className="mt-2 space-y-2">{familyProfiles.map((member) => <li key={member.id} className="flex items-center gap-3 rounded-xl border border-cream-200 bg-white px-3 py-2"><div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-saffron-100 text-xs font-extrabold text-saffron-700">{member.photo_url ? <img src={member.photo_url} alt="" className="h-full w-full object-cover" /> : (member.display_name ?? '?').slice(0, 2).toUpperCase()}</div><span className="min-w-0 flex-1 truncate text-sm font-semibold text-stone-800">{member.id === profile?.id ? 'You' : member.display_name || 'Group member'}</span><span className={`text-xs font-bold ${sharingLocation.has(member.id) ? 'text-violet-700' : 'text-stone-400'}`}>{sharingLocation.has(member.id) ? '● Sharing' : '○ Location off'}</span></li>)}</ul>
-    {familyProfiles.length === 0 && <p className="mt-2 text-xs text-stone-500">Loading group members…</p>}
+    {locationError && <p className="mt-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">Could not load live locations: {locationError}</p>}
+    {familyProfiles.length === 0 && !locationError && <p className="mt-2 text-xs text-stone-500">Loading group members…</p>}
   </section>;
   return <><div className="mb-3 grid grid-cols-2 gap-2"><button onClick={() => { setGroupAction('create'); setRegistration({ ...registration, groupCode: makeGroupCode() }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'create' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Create group</button><button onClick={() => { setGroupAction('join'); setRegistration({ ...registration, groupCode: '' }); }} className={`rounded-xl border px-3 py-2 text-xs font-bold ${groupAction === 'join' ? 'border-saffron-600 bg-saffron-600 text-white' : 'border-cream-200 bg-saffron-50 text-stone-600'}`}>Join group</button></div><p className="mb-3 text-xs text-stone-500">{groupAction === 'create' ? 'A unique code has been generated. Share it only with your group.' : 'Enter the unique code shared by your group organiser.'}</p><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Your name" value={registration.name} onChange={e => setRegistration({ ...registration, name: e.target.value })}/><input className="mb-3 w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm" placeholder="Unique group code" value={registration.groupCode} onChange={e => setRegistration({ ...registration, groupCode: e.target.value.toUpperCase() })}/><button onClick={onSubmit} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm">{groupAction === 'create' ? 'Create & join group' : 'Join group'}</button>{registeredGroup && <><p className="mt-3 rounded-xl bg-green-50 p-3 text-xs font-bold text-green-700">Your group code: {registeredGroup}</p><p className="mt-2 text-xs text-stone-500">{familyProfiles.length} member{familyProfiles.length === 1 ? '' : 's'} in your group. Purple map dots are shared only after each member grants location access.</p></>}</>;
 }
