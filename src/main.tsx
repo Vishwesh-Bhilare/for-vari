@@ -789,29 +789,7 @@ function App() {
 
         {activeSosCount > 0 && <div className="sticky top-0 z-40 flex items-center justify-between bg-red-600 px-4 py-3 text-white shadow-lg"><span className="flex items-center text-sm font-bold"><span className="mr-2 h-2.5 w-2.5 animate-pulse rounded-full bg-white" />{activeSosCount} active alert{activeSosCount === 1 ? '' : 's'}</span><button onClick={() => changeView('sos_mesh')} className="rounded-lg bg-red-700 px-3 py-1.5 text-xs font-bold">View →</button></div>}
         {session && !position && <div className="mx-4 mt-4 flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-3.5 text-sm text-blue-950 font-bold shadow-2xs"><span>Share your device location to show your live dot to your group.</span><button onClick={requestLocation} className="shrink-0 rounded-xl bg-blue-700 px-3.5 py-2 text-xs font-bold text-white shadow">Allow location</button></div>}
-        {!session && (
-          <section className="mx-4 mt-4 rounded-3xl bg-white p-6 text-stone-900 shadow-md border border-stone-200/80">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-black text-stone-900">{guestCopy.title}</h2>
-                <p className="mt-1 text-sm text-stone-600 font-medium">{guestCopy.description}</p>
-              </div>
-              <div className="flex rounded-xl border border-stone-200 bg-stone-100 p-1" aria-label="Translate page language">
-                <button type="button" onClick={() => setGuestLanguage('en')} className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${guestLanguage === 'en' ? 'bg-saffron-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-200'}`}>English</button>
-                <button type="button" onClick={() => setGuestLanguage('mr')} className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${guestLanguage === 'mr' ? 'bg-saffron-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-200'}`}>मराठी</button>
-              </div>
-            </div>
-            <p className="mt-3 rounded-2xl border border-saffron-200 bg-saffron-50 p-3.5 text-xs font-bold text-saffron-900">
-              {guestCopy.authRequired}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2.5">
-              <button onClick={() => setShowAuthModal(true)} className="rounded-2xl bg-saffron-600 hover:bg-saffron-700 px-5 py-2.5 text-sm font-black text-white shadow-md transition active:scale-95">{guestCopy.signIn}</button>
-              <button onClick={() => changeView('news')} className="rounded-2xl bg-stone-100 hover:bg-stone-200 border border-stone-300 px-4 py-2.5 text-sm font-bold text-stone-800 transition">{guestCopy.news}</button>
-              <button onClick={() => changeView('helplines')} className="rounded-2xl bg-red-600 hover:bg-red-700 px-4 py-2.5 text-sm font-bold text-white shadow-md transition">📞 Helplines</button>
-              <button onClick={() => setShowApplyModal(true)} className="rounded-2xl border border-stone-300 hover:bg-stone-100 px-4 py-2.5 text-sm font-bold text-stone-800 transition">{guestCopy.volunteer}</button>
-            </div>
-          </section>
-        )}
+
         
         <div className="lg:grid lg:grid-cols-[2fr_1fr] lg:gap-6 lg:p-4 mt-4">
           <div className="space-y-4">
