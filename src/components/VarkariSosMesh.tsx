@@ -457,7 +457,7 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
     }
     let cancelled = false;
     QRCode.toDataURL(localPairingCode, { errorCorrectionLevel: 'M', margin: 1, width: 260 })
-      .then((url) => {
+      .then((url: string) => {
         if (!cancelled) setPairingQrDataUrl(url);
       })
       .catch(() => {
