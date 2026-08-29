@@ -1,6 +1,6 @@
 import 'leaflet/dist/leaflet.css';
 import './style.css';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import L from 'leaflet';
 import { cacheRows, drainOutbox, getRows, queueWrite } from './db';
@@ -61,6 +61,10 @@ function usePosition() {
   const [geoError, setGeoError] = useState<string | null>(null);
   const watchIdRef = useRef<number | undefined>(undefined);
 
+  useEffect(() => () => {
+    if (watchIdRef.current !== undefined) navigator.geolocation?.clearWatch(watchIdRef.current);
+  }, []);
+
   const setManualLocation = (lat: number, lng: number, name = 'Manual Location') => {
     const mockPosition = {
       coords: {
@@ -78,7 +82,7 @@ function usePosition() {
     setGeoError(null);
   };
 
-  const requestLocation = () => {
+  const requestLocation = useCallback(() => {
     setGeoError(null);
     if (!navigator.geolocation) {
       setGeoError('Geolocation API is not supported in this browser.');
@@ -108,7 +112,7 @@ function usePosition() {
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
     );
-  };
+  }, []);
 
   return { position, requestLocation, geoError, setManualLocation };
 }
@@ -193,6 +197,14 @@ function App() {
       });
   }, [profile?.group_id]);
 
+  // Permission is granted per browser origin, not per group. Start tracking as
+  // soon as a signed-in pilgrim opens the dashboard so a previously granted
+  // permission is actually used (rather than only being checked by the UI).
+  useEffect(() => {
+    if (!session || position || geoError || !navigator.geolocation) return;
+    requestLocation();
+  }, [session, position, geoError, requestLocation]);
+
   useEffect(() => {
     if (!session || !currentMemberId || !position || !isSupabaseConfigured) return;
     const publish = async () => {
@@ -202,8 +214,25 @@ function App() {
         lng: position.coords.longitude,
         accuracy: position.coords.accuracy,
         updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id' });
+      if (error) {
+        setLocationError(`Could not publish your location: ${error.message}`);
+        return;
+      }
+      setLocationError('');
+      // Reflect this device immediately. Realtime can be disabled or delayed
+      // in a local Supabase project, so it must not be required for the
+      // dashboard to show the current pilgrim as sharing.
+      setLiveLocations((locations) => {
+        const mine: LiveLocation = {
+          user_id: currentMemberId,
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          updated_at: new Date().toISOString()
+        };
+        return [mine, ...locations.filter((location) => location.user_id !== currentMemberId)];
       });
-      if (error) setLocationError(error.message);
     };
     publish();
     const interval = window.setInterval(publish, 30_000);
