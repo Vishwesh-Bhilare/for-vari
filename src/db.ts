@@ -1,11 +1,11 @@
 import { openDB } from 'idb';
 import { isSupabaseConfigured, supabase } from './supabase';
-import type { OutboxEntry, QueuePriority, StoredRecord } from './types';
+import type { EmergencyContact, MeshChatMessage, MeshGoodsService, MeshNewsBroadcast, OutboxEntry, QueuePriority, StoredRecord } from './types';
 
 const MAX_OUTBOX_ATTEMPTS = 5;
 const retryDelay = (attempts: number) => Math.min(60_000, 2 ** Math.max(0, attempts - 1) * 2_000);
 
-const dbPromise = openDB('vari-companion', 2, {
+const dbPromise = openDB('vari-companion', 5, {
   upgrade(db) {
     if (!db.objectStoreNames.contains('nodes')) db.createObjectStore('nodes', { keyPath: 'id' });
     if (!db.objectStoreNames.contains('crowd_reports')) db.createObjectStore('crowd_reports', { keyPath: 'id', autoIncrement: true });
@@ -14,8 +14,60 @@ const dbPromise = openDB('vari-companion', 2, {
     if (!db.objectStoreNames.contains('sos_alerts')) db.createObjectStore('sos_alerts', { keyPath: 'id', autoIncrement: true });
     if (!db.objectStoreNames.contains('volunteer_applications')) db.createObjectStore('volunteer_applications', { keyPath: 'id' });
     if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox', { keyPath: 'id', autoIncrement: true });
+    if (!db.objectStoreNames.contains('mesh_messages')) db.createObjectStore('mesh_messages', { keyPath: 'id' });
+    if (!db.objectStoreNames.contains('mesh_news')) db.createObjectStore('mesh_news', { keyPath: 'id' });
+    if (!db.objectStoreNames.contains('mesh_goods_services')) db.createObjectStore('mesh_goods_services', { keyPath: 'id' });
+    if (!db.objectStoreNames.contains('emergency_contacts')) db.createObjectStore('emergency_contacts', { keyPath: 'id' });
   }
 });
+
+export async function saveEmergencyContact(contact: EmergencyContact) {
+  const db = await dbPromise;
+  await db.put('emergency_contacts', contact);
+}
+
+export async function getEmergencyContacts(): Promise<EmergencyContact[]> {
+  const db = await dbPromise;
+  return (await db.getAll('emergency_contacts')) as EmergencyContact[];
+}
+
+export async function deleteEmergencyContact(id: string) {
+  const db = await dbPromise;
+  await db.delete('emergency_contacts', id);
+}
+
+export async function saveMeshMessage(msg: MeshChatMessage) {
+  const db = await dbPromise;
+  await db.put('mesh_messages', msg);
+}
+
+export async function getMeshMessages(): Promise<MeshChatMessage[]> {
+  const db = await dbPromise;
+  const messages = await db.getAll('mesh_messages');
+  return messages.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+export async function saveMeshNews(news: MeshNewsBroadcast) {
+  const db = await dbPromise;
+  await db.put('mesh_news', news);
+}
+
+export async function getMeshNews(): Promise<MeshNewsBroadcast[]> {
+  const db = await dbPromise;
+  const items = await db.getAll('mesh_news');
+  return items.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+export async function saveMeshGoodsService(item: MeshGoodsService) {
+  const db = await dbPromise;
+  await db.put('mesh_goods_services', item);
+}
+
+export async function getMeshGoodsServices(): Promise<MeshGoodsService[]> {
+  const db = await dbPromise;
+  const items = await db.getAll('mesh_goods_services');
+  return items.sort((a, b) => b.timestamp - a.timestamp);
+}
 
 export async function cacheRows<T extends { id?: string | number }>(store: string, rows: T[]) {
   const db = await dbPromise;

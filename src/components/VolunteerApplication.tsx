@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { cacheRows } from '../db';
 import { isSupabaseConfigured, supabase } from '../supabase';
 import type { NodePoint, VolunteerApplication as VolunteerApplicationRecord } from '../types';
@@ -140,132 +140,29 @@ export function VolunteerApplication({
         : ''
   );
 
+  const [step, setStep] = useState(1);
+  const fieldClass = "w-full min-h-[44px] rounded-xl border border-cream-200 bg-saffron-50 px-3.5 py-3 text-sm text-stone-900 placeholder:text-stone-400 focus:border-saffron-600 focus:ring-2 focus:ring-saffron-600/20 focus:outline-none transition-colors";
+
   return (
     <form className="space-y-3 text-sm" onSubmit={(event) => void submitApplication(event)}>
-      {application?.status === 'rejected' && (
-        <p className="rounded-lg bg-red-50 p-2 text-[13px] text-red-700">
-          Your previous application was rejected. You may submit a new application with updated details.
-        </p>
-      )}
-
-      <div>
-        <label className="block text-xs font-semibold text-stone-700 mb-1">Full Name</label>
-        <input
-          className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
-          required
-          placeholder="e.g. Rahul Sharma"
-          value={form.full_name}
-          onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">Phone Number</label>
-          <input
-            className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
-            required
-            type="tel"
-            placeholder="+91 98765 43210"
-            value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          />
+      <div className="mb-5">
+        <div className="flex items-center gap-2">
+          {[1, 2].map((number) => <React.Fragment key={number}><span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${step >= number ? 'bg-saffron-600 text-white' : 'border border-cream-200 bg-cream-100 text-stone-400'} ${step === number ? 'ring-4 ring-saffron-600/20' : ''}`}>{number}</span>{number === 1 && <span className={`h-0.5 flex-1 transition-colors duration-300 ${step === 2 ? 'bg-saffron-600' : 'bg-cream-200'}`} />}</React.Fragment>)}
         </div>
-        <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">Emergency Contact</label>
-          <input
-            className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
-            required
-            type="tel"
-            placeholder="+91 91234 56789"
-            value={form.emergency_contact}
-            onChange={(e) => setForm({ ...form, emergency_contact: e.target.value })}
-          />
-        </div>
+        <div className="mt-1 flex justify-between text-xs font-semibold text-stone-500"><span>Personal details</span><span>Seva details</span></div>
       </div>
-
-      <div>
-        <label className="block text-xs font-semibold text-stone-700 mb-1">Preferred Station</label>
-        <select
-          className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
-          value={form.preferred_station}
-          onChange={(e) => setForm({ ...form, preferred_station: e.target.value })}
-        >
-          {nodes.length > 0 ? (
-            <>
-              <option value="">Select a station</option>
-              {nodes.map((node) => (
-                <option key={node.id} value={node.id}>
-                  {node.name}
-                </option>
-              ))}
-            </>
-          ) : (
-            <option value="">Route stations unavailable</option>
-          )}
-        </select>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">Age</label>
-          <input
-            className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
-            required
-            type="number"
-            min="13"
-            placeholder="25"
-            value={form.age}
-            onChange={(e) => setForm({ ...form, age: e.target.value })}
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-stone-700 mb-1">City</label>
-          <input
-            className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
-            required
-            placeholder="Pune / Solapur"
-            value={form.city}
-            onChange={(e) => setForm({ ...form, city: e.target.value })}
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-xs font-semibold text-stone-700 mb-1">Experience & Motivation</label>
-        <textarea
-          className="w-full rounded-xl border border-stone-300 p-2.5 text-stone-900 focus:border-orange-500 focus:outline-none"
-          rows={2}
-          placeholder="Prior Seva or crowd management experience..."
-          value={form.experience}
-          onChange={(e) => setForm({ ...form, experience: e.target.value })}
-        />
-      </div>
-
-      <button
-        type="submit"
-        className="w-full rounded-xl bg-orange-600 py-3 font-bold text-white shadow hover:bg-orange-700 disabled:opacity-60 transition-all cursor-pointer"
-        disabled={submitting}
-      >
-        {submitting ? 'Submitting Application...' : '⚡ Apply to Volunteer'}
-      </button>
-
-      {feedbackMessage && (
-        <div className="space-y-2">
-          <p className={`text-xs font-semibold ${needsAuth || feedbackMessage.includes('rejected') || feedbackMessage.includes('failed') ? 'text-red-700' : 'text-emerald-700'}`}>
-            {feedbackMessage}
-          </p>
-          {needsAuth && onRequireAuth && (
-            <button
-              type="button"
-              onClick={onRequireAuth}
-              className="w-full rounded-xl bg-stone-900 py-2 text-xs font-bold text-white hover:bg-stone-800 transition-all"
-            >
-              Sign In to Submit Application
-            </button>
-          )}
-        </div>
-      )}
+      {application?.status === 'rejected' && <p className="rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700">Your previous application was rejected. You may submit a new application with updated details.</p>}
+      {step === 1 ? <>
+        <div className="flex flex-col gap-0 mb-3"><label className="mb-1.5 block text-xs font-semibold text-stone-600">Full name</label><input className={fieldClass} required placeholder="e.g. Rahul Sharma" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></div>
+        <div className="grid gap-3 sm:grid-cols-2"><div className="flex flex-col gap-0 mb-3"><label className="mb-1.5 block text-xs font-semibold text-stone-600">Phone number</label><input className={fieldClass} required type="tel" placeholder="+91 98765 43210" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div><div className="flex flex-col gap-0 mb-3"><label className="mb-1.5 block text-xs font-semibold text-stone-600">Emergency contact</label><input className={fieldClass} required type="tel" placeholder="+91 91234 56789" value={form.emergency_contact} onChange={(e) => setForm({ ...form, emergency_contact: e.target.value })} /></div></div>
+        <div className="grid grid-cols-2 gap-3"><div className="flex flex-col gap-0 mb-3"><label className="mb-1.5 block text-xs font-semibold text-stone-600">Age</label><input className={fieldClass} required type="number" min="13" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} /></div><div className="flex flex-col gap-0 mb-3"><label className="mb-1.5 block text-xs font-semibold text-stone-600">City</label><input className={fieldClass} required placeholder="Pune / Solapur" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div></div>
+        <button type="button" onClick={() => setStep(2)} className="w-full min-h-[48px] rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm hover:bg-saffron-500 active:scale-[0.98] transition-all">Next →</button>
+      </> : <>
+        <div className="flex flex-col gap-0 mb-3"><label className="mb-1.5 block text-xs font-semibold text-stone-600">Preferred station</label><select className={fieldClass} value={form.preferred_station} onChange={(e) => setForm({ ...form, preferred_station: e.target.value })}><option value="">Select a station</option>{nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}</select></div>
+        <div className="flex flex-col gap-0 mb-3"><label className="mb-1.5 block text-xs font-semibold text-stone-600">Experience & motivation</label><textarea className={fieldClass} rows={3} placeholder="Prior Seva or crowd management experience..." value={form.experience} onChange={(e) => setForm({ ...form, experience: e.target.value })} /></div>
+        <div className="flex gap-3"><button type="button" onClick={() => setStep(1)} className="min-h-[48px] flex-1 rounded-xl border-2 border-saffron-600 py-3 text-sm font-bold text-saffron-600 hover:bg-saffron-50 active:scale-[0.98] transition-all">← Back</button><button type="submit" className="min-h-[48px] flex-1 rounded-xl bg-saffron-600 py-3 text-sm font-bold text-white shadow-sm hover:bg-saffron-500 active:scale-[0.98] transition-all disabled:opacity-60" disabled={submitting}>{submitting ? 'Submitting...' : 'Apply for Seva ⚡'}</button></div>
+      </>}
+      {feedbackMessage && <div className="space-y-2"><p className={`text-xs font-semibold ${needsAuth || feedbackMessage.includes('rejected') || feedbackMessage.includes('failed') ? 'text-red-700' : 'text-green-700'}`}>{feedbackMessage}</p>{needsAuth && onRequireAuth && <button type="button" onClick={onRequireAuth} className="w-full min-h-[48px] rounded-xl bg-stone-900 py-3 text-sm font-bold text-white">Sign in to submit application</button>}</div>}
     </form>
   );
 }

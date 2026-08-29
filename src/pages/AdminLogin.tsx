@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { cacheRows, getRows } from '../db';
+import { cacheRows, deleteEmergencyContact, getEmergencyContacts, getRows, saveEmergencyContact } from '../db';
 import { getSupabaseConfigError, isSupabaseConfigured, supabase } from '../supabase';
 import { signIn } from '../auth';
-import type { NodePoint, VolunteerApplication } from '../types';
+import type { EmergencyContact, NodePoint, VolunteerApplication } from '../types';
 
 type NodeForm = { id?: string; name: string; lat: string; lng: string; sequence_order: string };
 const emptyNodeForm: NodeForm = { name: '', lat: '', lng: '', sequence_order: '' };
@@ -31,10 +31,45 @@ export function AdminLogin({
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState<VolunteerApplication[]>([]);
   const [nodeForm, setNodeForm] = useState<NodeForm>(emptyNodeForm);
-  const [adminEmail, setAdminEmail] = useState('Bhilarevishwesh@gmail.com');
+  const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState('');
+
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
+  const [contactTitle, setContactTitle] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactCategory, setContactCategory] = useState<'ambulance' | 'police' | 'control_room' | 'medical' | 'other'>('ambulance');
+  const [contactIcon, setContactIcon] = useState('🚑');
+
+  useEffect(() => {
+    getEmergencyContacts().then(setEmergencyContacts);
+  }, []);
+
+  const handleAddEmergencyContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contactTitle.trim() || !contactPhone.trim()) return;
+
+    const newContact: EmergencyContact = {
+      id: `contact-${Date.now()}`,
+      title: contactTitle.trim(),
+      phone: contactPhone.trim(),
+      category: contactCategory,
+      icon: contactIcon || '📞'
+    };
+
+    await saveEmergencyContact(newContact);
+    setEmergencyContacts((prev) => [...prev, newContact]);
+    setContactTitle('');
+    setContactPhone('');
+    setMessage('Emergency contact added successfully.');
+  };
+
+  const handleDeleteEmergencyContact = async (id: string) => {
+    await deleteEmergencyContact(id);
+    setEmergencyContacts((prev) => prev.filter((c) => c.id !== id));
+    setMessage('Emergency contact removed.');
+  };
 
   const isAdmin = role === 'admin' || Boolean(userId && userEmail && (userEmail.toLowerCase() === adminEmail.toLowerCase() || userEmail.toLowerCase().includes('admin')));
   const configError = getSupabaseConfigError();
@@ -67,12 +102,8 @@ export function AdminLogin({
         console.warn('Failed to read local volunteer applications:', err);
       }
 
-      const pendingLocal = localApps.filter(
-        (app) => app.status === 'pending' && !app.full_name?.includes('Test Volunteer') && !app.full_name?.includes('Amit Deshmukh')
-      );
-      const pendingRemote = remoteApps.filter(
-        (app) => app.status === 'pending' && !app.full_name?.includes('Test Volunteer') && !app.full_name?.includes('Amit Deshmukh')
-      );
+      const pendingLocal = localApps.filter((app) => app.status === 'pending');
+      const pendingRemote = remoteApps.filter((app) => app.status === 'pending');
 
       const map = new Map<string, VolunteerApplication>();
       for (const app of [...pendingRemote, ...pendingLocal]) {
@@ -437,6 +468,71 @@ export function AdminLogin({
               </span>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Emergency Helplines Manager */}
+      <div className="rounded-2xl border bg-white p-5 shadow-sm space-y-4">
+        <h3 className="font-bold text-stone-900 flex items-center gap-2">
+          <span>📞</span> Emergency Contact Helplines Manager
+        </h3>
+        <form onSubmit={(e) => void handleAddEmergencyContact(e)} className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+          <input
+            placeholder="Title (e.g. Ambulance)"
+            className="rounded border p-2 text-xs font-semibold"
+            value={contactTitle}
+            onChange={(e) => setContactTitle(e.target.value)}
+            required
+          />
+          <input
+            placeholder="Phone Number (e.g. 108)"
+            className="rounded border p-2 text-xs font-semibold"
+            value={contactPhone}
+            onChange={(e) => setContactPhone(e.target.value)}
+            required
+          />
+          <select
+            className="rounded border p-2 text-xs font-semibold"
+            value={contactCategory}
+            onChange={(e) => setContactCategory(e.target.value as any)}
+          >
+            <option value="ambulance">🚑 Ambulance</option>
+            <option value="police">👮 Police</option>
+            <option value="control_room">🛡️ Control Room</option>
+            <option value="medical">🏥 Medical Booth</option>
+            <option value="other">📞 Other Helpline</option>
+          </select>
+          <input
+            placeholder="Icon (e.g. 🚑)"
+            className="rounded border p-2 text-xs font-semibold"
+            value={contactIcon}
+            onChange={(e) => setContactIcon(e.target.value)}
+          />
+          <button className="rounded bg-orange-600 hover:bg-orange-700 px-3 py-2 text-xs font-bold text-white shadow">
+            + Add Helpline
+          </button>
+        </form>
+
+        <div className="space-y-2 pt-1">
+          {emergencyContacts.map((contact) => (
+            <div key={contact.id} className="flex items-center justify-between p-3 rounded-xl border bg-stone-50 text-xs">
+              <span className="font-bold flex items-center gap-2">
+                <span>{contact.icon || '📞'}</span>
+                <span>{contact.title} ({contact.phone})</span>
+                <span className="uppercase text-[10px] bg-stone-200 px-2 py-0.5 rounded font-black text-stone-700">{contact.category}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleDeleteEmergencyContact(contact.id)}
+                className="px-2.5 py-1 rounded bg-red-100 text-red-700 font-bold hover:bg-red-200 transition"
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+          {emergencyContacts.length === 0 && (
+            <p className="text-xs text-stone-400 italic">No emergency helpline numbers added yet. Add numbers above to display on mobile devices.</p>
+          )}
         </div>
       </div>
     </div>

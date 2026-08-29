@@ -1,3 +1,19 @@
 @import "tailwindcss";
 
+@theme {
+  --color-saffron-950: #3D1A00;
+  --color-saffron-900: #6B2D00;
+  --color-saffron-700: #A84300;
+  --color-saffron-600: #C05A10;
+  --color-saffron-500: #D97706;
+  --color-saffron-100: #FEF3E2;
+  --color-saffron-50: #FFFBF5;
+  --color-cream-100: #F5F0E8;
+  --color-cream-200: #EDE5D8;
+}
+
 .leaflet-container { font-family: inherit; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.sos-hold-ring { background: conic-gradient(#dc2626 var(--sos-progress, 0%), transparent 0); }
