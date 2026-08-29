@@ -327,6 +327,18 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         }
       } else if (packet.type === 'RESOLVE_SOS_ALERT') {
         const alert = packet.payload as SosAlert;
+        if (isSupabaseConfigured && navigator.onLine && alert.id) {
+          void (async () => {
+            try {
+              await supabase
+                .from('sos_alerts')
+                .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+                .eq('id', alert.id);
+            } catch (err) {
+              console.warn('SOS resolve gateway update error:', err);
+            }
+          })();
+        }
         if (alert.origin_device_id === deviceIdRef.current) {
           setActiveSosAlert(null);
           stopSiren();
@@ -582,12 +594,12 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
   const uploadMessageToGateway = async (msg: MeshChatMessage) => {
     if (!isSupabaseConfigured) return;
     try {
-      await supabase.from('item_requests').insert({
-        requester_id: msg.sender_id,
-        item_name: `[Mesh Msg] ${msg.text}`,
+      await supabase.from('mesh_chat_relays').insert({
+        sender_id: msg.sender_id,
+        sender_name: msg.sender_name,
+        text: msg.text,
         lat: msg.lat,
-        lng: msg.lng,
-        status: 'open'
+        lng: msg.lng
       });
       setRelayedCount((prev) => prev + 1);
     } catch (err) {
@@ -1090,7 +1102,19 @@ export const VarkariSosMesh: React.FC<VarkariSosMeshProps> = ({
         status: 'resolved',
         resolved_at: new Date().toISOString()
       };
-      broadcastMeshPacket('RESOLVE_SOS_ALERT', resolvedAlert, `res-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+      void (async () => {
+        if (isSupabaseConfigured && activeSosAlert.id) {
+          try {
+            await supabase
+              .from('sos_alerts')
+              .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+              .eq('id', activeSosAlert.id);
+          } catch (err) {
+            console.warn('SOS resolve update error:', err);
+          }
+        }
+        broadcastMeshPacket('RESOLVE_SOS_ALERT', resolvedAlert, `res-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+      })();
     }
 
     setActiveSosAlert(null);
