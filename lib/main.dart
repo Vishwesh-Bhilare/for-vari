@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
@@ -49,6 +50,17 @@ class _FullscreenWebViewState extends State<FullscreenWebView> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
+          onNavigationRequest: (NavigationRequest request) async {
+            final String url = request.url;
+            if (url.startsWith('tel:') || url.startsWith('mailto:') || url.startsWith('sms:')) {
+              final Uri uri = Uri.parse(url);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
           onWebResourceError: (WebResourceError error) {
             debugPrint('WebView Notice (${error.errorCode}): ${error.description}');
             if (_currentUrl == localHttpsUrl) {
