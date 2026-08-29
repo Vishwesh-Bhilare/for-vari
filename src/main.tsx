@@ -33,6 +33,27 @@ const trafficLabel: Record<TrafficStatus, string> = { unknown: 'No data', clear:
 const REQUEST_EXPIRY_MS = 2 * 60 * 60 * 1000;
 const COMMON_ITEM_CHIPS = ['Water', 'Torch/Flashlight', 'Phone charger', 'Medicine', 'Blanket'];
 
+const sampleP2pItems: ItemRequest[] = [
+  {
+    id: 'sample-p2p-1',
+    requester_id: 'pilgrim-dehu-01',
+    item_name: 'Water Bottle & Electrolytes',
+    lat: 18.7187,
+    lng: 73.7661,
+    status: 'open',
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'sample-p2p-2',
+    requester_id: 'pilgrim-saswad-02',
+    item_name: 'First Aid Kit & Bandages',
+    lat: 18.3435,
+    lng: 74.0315,
+    status: 'open',
+    created_at: new Date().toISOString()
+  }
+];
+
 function getDistanceMeters(from: GeolocationPosition['coords'] | undefined, lat?: number, lng?: number) {
   if (!from || lat === undefined || lng === undefined) return undefined;
   const toRadians = (degrees: number) => degrees * Math.PI / 180;
@@ -248,10 +269,13 @@ function App() {
     if (!session && activePanel === 'lending') setActivePanel('lost');
   }, [session, activePanel]);
 
+
+
   useEffect(() => {
     void cacheRows('nodes', seedNodes);
     void Promise.all([
-      getRows<CrowdReport>('crowd_reports').then(setReports), getRows<ItemRequest>('item_requests').then(setItems),
+      getRows<CrowdReport>('crowd_reports').then(setReports),
+      getRows<ItemRequest>('item_requests').then((rows) => setItems(rows.length ? rows : sampleP2pItems)),
       getRows<TrafficReport>('traffic_reports').then(setTrafficReports), getRows<GroupNode>('group_nodes').then(setGroupNodes),
       getRows<Sighting>('sightings').then(setSightings), getRows<SosAlert>('sos_alerts').then(setSosAlerts),
       getRows<BroadcastMessage>('broadcast_messages').then(setBroadcastMessages),
