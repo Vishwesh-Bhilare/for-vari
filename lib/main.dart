@@ -3,13 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
-// Use local dev server URL for emulator testing (10.0.2.2 points to host localhost)
-// Change to vercelUrl for production build
-const String localDevUrl = 'http://10.0.2.2:5173/';
-const String vercelUrl = 'https://for-vari.vercel.app/';
-
-// Toggle between localDevUrl and vercelUrl as needed:
-const String activeUrl = localDevUrl;
+// Production URL is the default so installed builds do not wait on an emulator-only
+// localhost address. Override for local testing with:
+// flutter run --dart-define=WEBVIEW_URL=http://10.0.2.2:5173/
+const String defaultWebViewUrl = 'https://for-vari.vercel.app/';
+const String activeUrl = String.fromEnvironment(
+  'WEBVIEW_URL',
+  defaultValue: defaultWebViewUrl,
+);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,10 +48,19 @@ class _FullscreenWebViewState extends State<FullscreenWebView> {
   void initState() {
     super.initState();
 
-    _controller = WebViewController()
+    final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.white)
       ..setNavigationDelegate(NavigationDelegate())
       ..loadRequest(Uri.parse(activeUrl));
+
+    final platformController = controller.platform;
+    if (platformController is AndroidWebViewController) {
+      AndroidWebViewController.enableDebugging(false);
+      platformController.setMediaPlaybackRequiresUserGesture(false);
+    }
+
+    _controller = controller;
   }
 
   @override

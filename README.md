@@ -46,3 +46,11 @@ The schema stores individual identity in `profiles`, auto-creates a profile for 
 ## Map tile attribution and production tiles
 
 The app displays OpenStreetMap attribution in Leaflet. For production, avoid heavy direct use of `tile.openstreetmap.org`; use a tile provider such as MapTiler or Stadia, or host tiles yourself.
+
+## Flutter WebView wrapper
+
+The Flutter shell loads the production Vercel site by default so release builds do not stall while trying to reach the emulator-only `10.0.2.2` development URL. To test against the local Vite dev server from the Android emulator, run:
+
+```bash
+flutter run --dart-define=WEBVIEW_URL=http://10.0.2.2:5173/
+```
