@@ -95,12 +95,16 @@ export function LiveNews() {
     setError(null);
 
     try {
-      // Try Vite proxy endpoint /api/news or direct Python server on localhost:5005
+      // 1. Try local Python scraper endpoint
       let res: Response | null = null;
       try {
-        res = await fetch(`/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(6000) });
+        res = await fetch(`/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(3000) });
       } catch {
-        res = await fetch(`http://127.0.0.1:5005/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(6000) });
+        try {
+          res = await fetch(`http://127.0.0.1:5005/api/news${forceRefresh ? '?refresh=true' : ''}`, { signal: AbortSignal.timeout(3000) });
+        } catch {
+          res = null;
+        }
       }
 
       if (res && res.ok) {
@@ -113,12 +117,56 @@ export function LiveNews() {
           return;
         }
       }
-      throw new Error('News backend unreachable or returning empty results.');
+
+      // 2. Client-side Google News RSS fallback for Vercel / Cloud deployments
+      const rssUrls = [
+        'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://news.google.com/rss/search?q=Pandharpur+Wari&hl=mr&gl=IN&ceid=IN:mr'),
+        'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://news.google.com/rss/search?q=Pandharpur+Palkhi&hl=en-IN&gl=IN&ceid=IN:en')
+      ];
+
+      const liveRssNews: NewsItem[] = [];
+      for (const url of rssUrls) {
+        try {
+          const rssRes = await fetch(url, { signal: AbortSignal.timeout(4000) });
+          if (rssRes.ok) {
+            const data = await rssRes.json();
+            if (data.status === 'ok' && Array.isArray(data.items)) {
+              for (const rssItem of data.items) {
+                const title = (rssItem.title || '').trim();
+                if (!title) continue;
+                const ismr = /[\u0900-\u097F]/.test(title);
+                liveRssNews.push({
+                  id: rssItem.guid || rssItem.link || `${Date.now()}-${Math.random()}`,
+                  title,
+                  summary: rssItem.description ? rssItem.description.replace(/<[^>]*>?/gm, '').slice(0, 180) : '',
+                  link: rssItem.link,
+                  source: rssItem.author || (ismr ? 'वारकरी वृत्त' : 'Wari News Bulletin'),
+                  published: rssItem.pubDate || new Date().toISOString(),
+                  category: title.toLowerCase().includes('traffic') || title.includes('वाहतूक') || title.includes('मार्ग') ? 'traffic' : title.includes('मंदिर') || title.toLowerCase().includes('temple') || title.includes('दर्शन') ? 'temple' : 'palkhi',
+                  language: ismr ? 'mr' : 'en',
+                  scraped_at: Math.floor(Date.now() / 1000)
+                });
+              }
+            }
+          }
+        } catch {
+          // continue
+        }
+      }
+
+      if (liveRssNews.length > 0) {
+        setNews(liveRssNews);
+        setLastScraped(Math.floor(Date.now() / 1000));
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      // 3. Fallback to cached bulletins if offline
+      setNews((prev) => (prev.length > 0 ? prev : FALLBACK_NEWS));
     } catch (err) {
       console.warn('Realtime news fetch notice:', err);
-      // Graceful fallback to pre-scraped news
       setNews((prev) => (prev.length > 0 ? prev : FALLBACK_NEWS));
-      setError('Python real-time scraper is offline. Showing recent cached news.');
     } finally {
       setLoading(false);
       setRefreshing(false);
