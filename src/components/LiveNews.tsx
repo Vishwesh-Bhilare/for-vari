@@ -82,7 +82,6 @@ export function LiveNews() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [lastScraped, setLastScraped] = useState<number | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedLang, setSelectedLang] = useState<'all' | 'mr' | 'en'>('all');
@@ -92,7 +91,6 @@ export function LiveNews() {
   const fetchNews = async (forceRefresh = false) => {
     if (forceRefresh) setRefreshing(true);
     else setLoading(true);
-    setError(null);
 
     try {
       // 1. Try local Python scraper endpoint
@@ -334,29 +332,13 @@ export function LiveNews() {
         </div>
       </div>
 
-      {/* Offline Notice banner if python server is disconnected */}
-      {error && (
-        <div className="mt-3 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
-          <span className="flex items-center gap-1.5 font-medium">
-            <span>ℹ️</span>
-            {error}
-          </span>
-          <button
-            onClick={() => void fetchNews(true)}
-            className="shrink-0 rounded-lg bg-amber-200/80 px-2 py-1 font-bold text-amber-900 hover:bg-amber-300"
-          >
-            Retry Scraping
-          </button>
-        </div>
-      )}
-
       {/* News List */}
       <div className="mt-4 space-y-3">
         {loading ? (
           <div className="space-y-3 py-6 text-center">
             <div className="mx-auto h-8 w-8 animate-spin rounded-full border-3 border-saffron-600 border-t-transparent" />
             <p className="text-xs font-semibold text-stone-500">
-              Running Python real-time news scraper...
+              Fetching latest Wari news & updates...
             </p>
           </div>
         ) : filteredNews.length === 0 ? (
