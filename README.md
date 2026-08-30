@@ -1,140 +1,193 @@
-# 🚩 VariMitra (वारकरी मित्र)
+# 🚩 Pandharpur Vari Companion
 
-> **Offline-First Peer-to-Peer Mesh Network & Disaster-Management PWA for Pandharpur Wari**
+**Offline-first PWA for the Pandharpur Vari pilgrimage** — live crowd-density route maps, peer item lending, lost-and-found check-ins, and priority SOS alerts, built to keep working even when mobile networks disappear into the crowd.
 
-[![React](https://img.shields.io/badge/React-19.0-61DAFB?style=for-the-badge&logo=react)](https://react.dev/)
-[![Vite](https://img.shields.io/badge/Vite-6.0-646CFF?style=for-the-badge&logo=vite)](https://vitejs.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
-[![PWA](https://img.shields.io/badge/PWA-Offline--First-5A0FC8?style=for-the-badge&logo=pwa)](https://web.dev/progressive-web-apps/)
-[![Supabase](https://img.shields.io/badge/Supabase-Database%20%26%20Realtime-3FCF8E?style=for-the-badge&logo=supabase)](https://supabase.com/)
-[![Flutter](https://img.shields.io/badge/Flutter-Android%20APK-02569B?style=for-the-badge&logo=flutter)](https://flutter.dev/)
-
----
-
-## 📌 Overview
-
-During the annual **Pandharpur Ashadhi Wari**, over **3 million pilgrims (Varkaris)** walk more than **250+ kilometers** from Dehu and Alandi to Pandharpur. Due to extreme crowd density, cellular tower networks choke, fail, or become complete dead zones.
-
-**VariMitra (वारकरी मित्र)** is an offline-first disaster-management Progressive Web Application (PWA) and native Android app designed to protect pilgrims during emergency situations:
-- **Offline P2P Mesh Network**: Turns smartphones into a multi-hop relay network that passes SOS emergency signals, chat messages, and resource requests phone-to-phone until reaching a connected gateway device.
-- **ML Spatial Centroid Matching Engine**: Intelligently predicts optimal meeting locations between pilgrims offering and requesting critical supplies (`Water`, `Medicine`, `First Aid`, `Torch`, `Food`).
-- **Live Crowd Density & Traffic Tracking**: Monitored route checkpoints (`Dehu`, `Pune Halt`, `Saswad`, `Lonand`, `Mukkam - Wakhri`, `Pandharpur`).
-- **High-Contrast Direct Sunlight Solar Theme**: Optimized for extreme outdoor visibility under harsh sunlight.
-- **Bilingual Accessibility**: Instant 1-tap **English** / **मराठी (Marathi)** interface switching.
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![Vite](https://img.shields.io/badge/Vite-Build-646CFF?logo=vite&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-99%25-3178C6?logo=typescript&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2F%20Realtime-3ECF8E?logo=supabase&logoColor=white)
+![PWA](https://img.shields.io/badge/PWA-Offline--first-5A0FC8?logo=pwa&logoColor=white)
 
 ---
 
-## ✨ Key Features
+## Table of Contents
 
-### 1. 🤝 P2P Resource Exchange & ML Spatial Engine
-- **Broadcasting Feed**: Real-time peer-to-peer item request feed for critical items (`Water`, `Food`, `Torch`, `Medicine`, `Blanket`, `First Aid`).
-- **Spatial Centroid Algorithm**: Calculates exact geographic midpoints $(midLat, midLng)$ using spherical **Haversine Great-Circle distance metrics**:
-  \[
-  d = 2R \arcsin\left( \sqrt{\sin^2\left(\frac{\Delta \phi}{2}\right) + \cos(\phi_A)\cos(\phi_B)\sin^2\left(\frac{\Delta \lambda}{2}\right)} \right)
-  \]
-- **Optimal Meeting Spot Selection**:
-  - **Station Node Selection**: Picks nearest official route station if within threshold distance ($< 2.5\text{ km}$).
-  - **Dynamic Trail Checkpoint**: Computes continuous spatial trail checkpoints when pilgrims are in open terrain.
-- **Smart Handshake Pass**: Renders walking distance estimates (`~350m`) for both pilgrims and features a 1-tap **`🗺️ Show Meeting Spot on Map`** button that focuses Leaflet map view directly onto the meeting marker.
-
-### 2. 🚨 Multi-Hop Mesh SOS Emergency Network
-- **High-Contrast Emergency Launcher**: Fixed high-priority SOS trigger for instant emergency dispatch.
-- **Category-Based SOS Alerts**: `Medical Emergency`, `Lost Pilgrim`, `Accident`, `Stampede / Crowd Risk`, `Water & Food Supply`, `General`.
-- **Relay Path & Loop Elimination**: Tracks hop count (`Hops: 3`), relay node history (`Phone A → Phone B → Gateway`), and packet IDs to eliminate looping transmissions.
-
-### 3. 🗺️ Offline Leaflet Map & Service Worker Caching
-- Pre-caches OpenStreetMap map tiles via custom Workbox service worker (`sw.ts`) for continuous offline navigation.
-- Plots live route stations, crowd density badges, traffic status indicators, and group member locations.
-
-### 4. 🔎 Lost & Found Group Check-Ins
-- **Group Code Coordination**: Pilgrims generate or join unique 8-character group codes (e.g. `WARI-6F65BFAB`).
-- **Member Location Radar**: Private live location sharing exclusively visible to members of the same group.
-
-### 5. ☀️ Direct Sunlight Solar Theme & Bilingual Support
-- **Outdoor High-Contrast Mode**: Built-in solar contrast toggle for direct sunlight readability.
-- **Bilingual Interface**: Seamless 1-tap language switcher for English and Marathi.
+- [Why this exists](#why-this-exists)
+- [Core idea](#core-idea)
+- [System architecture](#system-architecture)
+- [Offline-first sync flow](#offline-first-sync-flow)
+- [SOS priority outbox](#sos-priority-outbox)
+- [Feature set](#feature-set)
+- [Tech stack](#tech-stack)
+- [Getting started](#getting-started)
+- [Supabase setup](#supabase-setup)
+- [Project structure](#project-structure)
+- [Roadmap / feature order implemented](#roadmap--feature-order-implemented)
 
 ---
 
-## 🛠️ Technology Stack
+## Why this exists
 
-| Layer | Technologies |
-| :--- | :--- |
-| **Core Frontend** | React 19, TypeScript, Vite 6 |
-| **Styling & Design** | Tailwind CSS v4, Custom Glassmorphism, Solar Theme Tokens |
-| **Mapping & GIS** | Leaflet.js, OpenStreetMap, Spatial Haversine Geometry |
-| **Offline Storage** | IndexedDB (`idb`), Service Worker (`vite-plugin-pwa`, Workbox) |
-| **Backend & Realtime** | Supabase Postgres, Realtime WebSockets, Row-Level Security (RLS) |
-| **Native Mobile** | Flutter 3.8, Android WebView Wrapper, Gradle |
+The Pandharpur Vari brings millions of pilgrims (*warkaris*) walking together over several weeks, often through areas with patchy or non-existent connectivity. Existing coordination tools assume "always online" — this app assumes the opposite: **the network is the exception, not the rule.**
 
----
+Every core feature is designed to work first against a local IndexedDB store, then sync opportunistically to Supabase the moment connectivity returns.
 
-## 🚀 Getting Started
+## Core idea
 
-### Prerequisites
-- **Node.js**: `v18+`
-- **npm**: `v9+`
-- **Flutter SDK**: `v3.8+` *(Optional: only needed for native Android APK builds)*
-
-### 1. Installation
-```bash
-git clone https://github.com/Vishwesh-Bhilare/for-vari.git
-cd for-vari
-npm install
+```mermaid
+flowchart LR
+    A["📵 No / patchy network<br/>(default state on the Vari route)"] --> B["App reads & writes<br/>IndexedDB (local source of truth)"]
+    B --> C{"Connectivity<br/>restored?"}
+    C -- "No" --> B
+    C -- "Yes" --> D["Write Outbox flushes<br/>to Supabase"]
+    D --> E["Supabase Realtime<br/>broadcasts updates"]
+    E --> F["Other devices update<br/>crowd map / feeds live"]
+    F --> B
 ```
 
-### 2. Run Web Development Server
+The app never blocks a user action on network availability — every write lands locally and instantly, then propagates when it can.
+
+## System architecture
+
+```mermaid
+flowchart TB
+    subgraph Client["📱 Client — React + Vite PWA"]
+        UI["UI Layer<br/>(Crowd Map · Item Board · Lost & Found · SOS)"]
+        SW["Service Worker<br/>(vite-plugin-pwa)"]
+        IDB["IndexedDB (idb)<br/>local source of truth + write outbox"]
+        Leaflet["Leaflet Map<br/>+ cached OSM tiles"]
+    end
+
+    subgraph Backend["☁️ Supabase"]
+        PG["Postgres<br/>(schema.sql, RLS enabled)"]
+        RT["Realtime<br/>channel subscriptions"]
+        Auth["Auth"]
+    end
+
+    UI <--> IDB
+    UI --> Leaflet
+    Leaflet -. "tiles cached on first load" .-> SW
+    SW -. "offline asset + tile cache" .-> UI
+
+    IDB -- "outbox replay on reconnect" --> PG
+    PG -- "live row changes" --> RT
+    RT -- "push updates" --> UI
+    Auth -.-> UI
+
+    classDef client fill:#eef2ff,stroke:#6366f1,color:#1e1b4b;
+    classDef backend fill:#ecfdf5,stroke:#10b981,color:#064e3b;
+    class UI,SW,IDB,Leaflet client;
+    class PG,RT,Auth backend;
+```
+
+## Offline-first sync flow
+
+What happens when a warkari reports crowd density with no signal, then walks into range of a tower:
+
+```mermaid
+sequenceDiagram
+    participant U as Warkari (User)
+    participant App as PWA (React)
+    participant DB as IndexedDB
+    participant OB as Outbox Queue
+    participant SB as Supabase Postgres
+    participant RT as Supabase Realtime
+    participant Peers as Other Devices
+
+    U->>App: Marks crowd density at route node
+    App->>DB: Write immediately (optimistic)
+    App-->>U: Instant UI confirmation
+    App->>OB: Queue write for sync
+
+    Note over App,OB: Device is offline —<br/>queue holds until reconnect
+
+    App->>App: Connectivity restored
+    OB->>SB: Replay queued writes
+    SB-->>OB: Ack + row IDs
+    SB->>RT: Row change event
+    RT->>Peers: Broadcast update
+    Peers->>Peers: Crowd map re-renders live
+```
+
+## SOS priority outbox
+
+SOS alerts jump the queue ahead of ordinary writes (item requests, sightings) so emergencies sync first the instant any connectivity appears:
+
+```mermaid
+flowchart LR
+    SOS["🆘 SOS Button Pressed"] --> P1["Priority Outbox<br/>(sent first)"]
+    Item["Item request / sighting"] --> P2["Standard Outbox"]
+
+    P1 --> Net{"Any connectivity?"}
+    P2 --> Net
+    Net -- "Yes" --> Flush["Flush priority queue<br/>before standard queue"]
+    Flush --> Dash["Volunteer Dashboard<br/>surfaces alert instantly"]
+    Net -- "No" --> Retry["Retry on next<br/>network check"]
+    Retry --> Net
+```
+
+## Feature set
+
+| Feature | What it does |
+|---|---|
+| 🗺️ **Crowd density route map** | Leaflet map with live Supabase Realtime subscription; falls back to offline queue when disconnected |
+| 🤝 **Peer item lending** | Item request feed with GPS attachment so nearby pilgrims can respond |
+| 🔎 **Lost & found** | Group-code check-in timeline to reunite separated groups |
+| 🆘 **SOS button** | Fixed priority button with outbox replay ahead of all other traffic |
+| 🧑‍💼 **Volunteer dashboard** | Panel for active alerts, sightings, and item requests |
+| 📦 **Offline map tiles** | Service worker caches OSM tiles on first load for offline route rendering |
+
+## Tech stack
+
+- **Frontend:** React + Vite + Tailwind CSS
+- **PWA:** `vite-plugin-pwa` with a custom service worker for tile caching
+- **Maps:** Leaflet, offline-cached OpenStreetMap tiles
+- **Local storage:** IndexedDB via `idb` — local source of truth + write outbox
+- **Backend:** Supabase (Postgres, Auth, Realtime-ready schema)
+
+## Getting started
+
 ```bash
+npm install
+cp .env.example .env.local
 npm run dev
 ```
-Open **[http://localhost:5173/](http://localhost:5173/)** in your browser.
 
-To run dual instances for multi-device testing:
-```bash
-npx vite --port 5174
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env.local` to enable live data.
+**Without them, the app still runs fully offline** using IndexedDB and seeded route nodes — useful for demos with no backend at all.
+
+## Supabase setup
+
+1. Open the Supabase SQL editor for your project.
+2. Run [`supabase/schema.sql`](./supabase/schema.sql).
+3. Note: Row Level Security is enabled on all tables with **permissive hackathon policies** (`using (true)`).
+   - For production, restrict writes to authenticated group members.
+   - Protect personal contact fields.
+   - Crowd map and item board reads can remain public where appropriate.
+
+## Project structure
+
+```
+for-vari/
+├── src/                # App source (components, hooks, offline/sync logic)
+├── supabase/
+│   └── schema.sql      # Postgres schema + RLS policies
+├── .env.example         # Supabase URL / anon key template
+├── index.html
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
 ```
 
-### 3. Build Production Web Bundle
-```bash
-npm run build
-```
+## Roadmap / feature order implemented
+
+1. ✅ Crowd density route map with live Realtime subscription and offline queue
+2. ✅ Peer-to-peer item request feed with GPS attachment
+3. ✅ Lost-and-found group code check-in timeline
+4. ✅ Fixed SOS button with priority outbox replay
+5. ✅ Volunteer dashboard panel for active alerts, sightings, and requests
+6. ✅ Service worker caches map tiles on first load for offline route rendering
 
 ---
 
-## 📱 Native Android APK Build
-
-The repository includes a Flutter native WebView wrapper for standalone Android deployment.
-
-### Build Debug APK
-```bash
-flutter build apk --debug
-```
-Output location: [`build/app/outputs/flutter-apk/app-debug.apk`](file:///Users/anuragpatil/for-vari/build/app/outputs/flutter-apk/app-debug.apk)
-
-### Build Release APK
-```bash
-flutter build apk --release
-```
-
----
-
-## 🔒 Supabase & Database Schema Setup
-
-1. **Anonymous Sign-In**: Enable **Anonymous Sign-ins** under Supabase Auth → Providers. This allows pilgrims to submit crowd reports, item requests, and SOS alerts anonymously without mandatory initial authentication.
-2. **Database Migration**: Run `supabase/schema.sql` and `supabase/seed.sql` in the Supabase SQL Editor.
-3. **Bootstrap Admin Account**: Run the following query in Supabase SQL editor:
-   ```sql
-   UPDATE profiles SET role = 'admin', approved = true WHERE id = '<YOUR_USER_AUTH_ID>';
-   ```
-
----
-
-## 📄 License
-
-Distributed under the MIT License. See [`LICENSE`](file:///Users/anuragpatil/for-vari/LICENSE) for more details.
-
----
-
-<p center>
-  🚩 <b>पंढरपूर आषाढी वारी सोहळा — वारकरी मित्रासोबत सुरक्षित प्रवास</b> 🚩
-</p>
+<p align="center"><i>Built for the Pandharpur Vari — designed to work where the network doesn't.</i></p>
